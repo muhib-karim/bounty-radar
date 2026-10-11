@@ -1,124 +1,44 @@
-# 🎯 Bounty Radar
+# Bounty Radar
 
-**Live site: https://ai-dev-2024.github.io/bounty-radar/** · **API: https://bounty-radar-api.ai-dev-2024.workers.dev**
+Source tooling for collecting and filtering open-source bounties, jobs and challenges, with a static board, RSS/JSON outputs and an MCP interface.
 
-A daily-verified feed of real, payable open-source work — bounties, jobs, challenges — built for humans *and* coding agents. Dead repos, expired programs, and escrow-less spam farms are filtered out before they ever reach you.
+## Demo status
 
-[![sweep-and-publish](https://github.com/ai-dev-2024/bounty-radar/actions/workflows/sweep-and-publish.yml/badge.svg)](https://github.com/ai-dev-2024/bounty-radar/actions/workflows/sweep-and-publish.yml)
-[![API](https://img.shields.io/badge/API-live%20on%20Cloudflare%20Workers-F38020?logo=cloudflare&logoColor=white)](https://bounty-radar-api.ai-dev-2024.workers.dev/v1/stats)
-[![RSS](https://img.shields.io/badge/RSS-feed.xml-orange?logo=rss&logoColor=white)](https://ai-dev-2024.github.io/bounty-radar/feed.xml)
-![zero deps](https://img.shields.io/badge/dependencies-0-success)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![sources](https://img.shields.io/badge/sources-Algora%20·%20Opire%20·%20GitHub-blue)
+The previously advertised GitHub Pages board returned a GitHub Pages 404 during the 11 October 2026 browser check. The API stats endpoint returned HTTP 502 during the same audit. Neither is presented here as a working demo. No replacement URL is advertised until a deployment is verified.
 
-![Bounty Radar live board](docs/screenshot.png)
+The stored screenshot below is historical, not proof of current availability or current listings.
 
-## What you get
+![Historical board screenshot](docs/screenshot.png)
 
-| Surface | URL | For |
-|---|---|---|
-| Browse board | [/](https://ai-dev-2024.github.io/bounty-radar/) | humans — verified listings, escrow badges, filters, 60-second walkthrough |
-| HN momentum chart | [top of the board](https://ai-dev-2024.github.io/bounty-radar/) · [momentum.png](https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/momentum.png) | launch day — points, comments **and repo stars** over time, rendered on the page; standalone `momentum.svg` on Pages + login-free PNG on the `gh-artifacts` branch |
-| Hourly launch digest | Discord | launch day — pts/comments/stars/API-reqs with hourly deltas, every hour while the thread is <36h old, then silent |
-| RSS | [/feed.xml](https://ai-dev-2024.github.io/bounty-radar/feed.xml) | subscribe, new listings push to you |
-| JSON feed | [/bounties.json](https://ai-dev-2024.github.io/bounty-radar/bounties.json) | agents — poll it, act on it |
-| **Queryable API** | [bounty-radar-api.workers.dev](https://bounty-radar-api.ai-dev-2024.workers.dev/v1/stats) · [spec](https://bounty-radar-api.ai-dev-2024.workers.dev/openapi.json) | agents — filters, quota, keys |
-| **Launch dashboard API** | [/v1/launch](https://bounty-radar-api.ai-dev-2024.workers.dev/v1/launch) | agents — HN momentum samples + daily API request counts as data |
-| MCP server | [`mcp-server.mjs`](mcp-server.mjs) | agents — native tools, no HTTP |
+## Inspect the implementation
 
-### API tiers
+- `radar.mjs`: source collection, filtering and scoring.
+- `build-site.mjs`: static HTML, RSS and JSON output.
+- `mcp-server.mjs`: tools over stdio.
+- `worker/src/index.js`: optional queryable API implementation.
+- `.github/workflows/sweep-and-publish.yml`: scheduled collection and Pages deployment.
 
-| | Anonymous | Free key | Agent $15/mo | Team $79/mo |
-|---|---|---|---|---|
-| Requests/day | 100 (per IP) | 1,000 | 5,000 | 25,000 |
-| Filters, sort, search | ✓ | ✓ | ✓ | ✓ |
-| `/v1/keys/me` usage view | — | ✓ | ✓ | ✓ |
+Filters reduce noise; they do not guarantee that a listing is payable, unclaimed or available today. Recheck the original listing before acting. No current bounty totals, traffic or earnings metrics are claimed here.
+
+## Run locally
+
+Use Node 20 or newer and an authenticated `gh` command where the script requires GitHub access.
 
 ```bash
-# get a key (free, instant)
-curl -X POST https://bounty-radar-api.ai-dev-2024.workers.dev/v1/keys
-# use it
-curl -H "Authorization: Bearer brk_…" \
-  "https://bounty-radar-api.ai-dev-2024.workers.dev/v1/listings?escrow_only=1&min_amount=100"
+node radar.mjs
+node radar.mjs --json
+node notify.mjs feed.json --dry-run
+node mcp-server.mjs
 ```
 
-Paid tiers: create a Stripe Payment Link with `client_reference_id = <your key>` and `metadata[plan] = agent|team`, point its webhook at `POST /v1/webhooks/stripe` — checkout flips the key's plan automatically (`STRIPE_SECRET` env + KV). Details in `worker/src/index.js`.
+Use dry-run output before configuring notifications. Do not publish webhook URLs, API tokens or keys. Provider credentials and alert channels require separate setup. See the source scripts for the required environment and inputs.
 
-## Use it from any agent (MCP server)
+## Deployment and operating limits
 
-`mcp-server.mjs` is a zero-dependency MCP (Model Context Protocol) server — Claude Code, Freebuff, Cursor, etc. can natively ask what's new and winnable.
+The static pipeline uses GitHub Actions and Pages; the optional API is separate. Existing source configuration does not establish that either deployment is healthy. Hosting allowances and provider limits may change. This README makes no free-forever or no-hosting-bill guarantee.
 
-Tools: `search_bounties` (`min_score`, `min_amount`, `escrow_only`, `q`, …) · `get_listing` · `whats_new` · `get_stats`.
+The workflow includes alert and follow-up dispatch steps. Review those side effects before a manual production run. Alerts, launch integrations and optional billing need their own configuration and review.
 
-```json
-{ "mcpServers": { "bounty-radar": {
-    "command": "node",
-    "args": ["/path/to/mcp-server.mjs"] } } }
-```
+## License
 
-Or skip MCP: `fetch("https://ai-dev-2024.github.io/bounty-radar/bounties.json")`, or use the queryable API above (`/v1/diff?since=…` for change-only polling) or `GET /v1/launch` for the live launch metrics (HN points/comments/stars + API traffic).
-
-## How it works (zero servers)
-
-```
-every 6h (GitHub Actions cron, free):
-  radar.mjs sweeps 6 sources ──► verifies (repo ≤60d pushed · issue open · not fork · spam-filtered)
-                             ──► build-site.mjs writes HTML + RSS + JSON
-                             ──► build-dashboard.mjs renders the 3-panel launch dashboard (when live)
-                             ──► GitHub Pages deploys
-                             ──► notify.mjs pings Discord/Telegram on new score-≥6 listings
-                             ──► dispatches hn-monitor (thread + PR watch) and the hourly launch digest
-```
-
-No backend, no database, no hosting bill. GitHub Pages + Actions are the entire infrastructure.
-
-**No, you don't need Cloudflare/Vercel/Fly.io.** This is a static site + cron — GitHub Pages serves it and GitHub Actions computes it, free, forever. You'd only add a host when there's a live API with keys/paywalls (see [docs/API_PLAN.md](docs/API_PLAN.md), Stage 1+).
-
-## Proof it works end-to-end
-
-The pipeline picked its own bounty via the MCP server, fixed it, and opened the PR:
-**[PHPOffice/PHPWord#2937](https://github.com/PHPOffice/PHPWord/pull/2937)** — discover → verify unclaimed → diagnose two-layer bug → patch + regression tests → CI green, mergeable.
-
-## Alerts (optional, 2-min setup)
-
-Repo → Settings → Secrets → Actions → add `DISCORD_WEBHOOK_URL` (and/or `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`). Done — you get pinged the moment a new 6+ listing appears, exactly once per listing (dedup state committed back).
-
-## Local use
-
-```bash
-node radar.mjs                 # digest to stdout
-node radar.mjs --json          # machine-readable
-node notify.mjs feed.json --dry-run   # preview alerts
-node mcp-server.mjs            # serve tools over stdio
-```
-
-Node 20+, `gh` authed. Zero npm dependencies.
-
-## Files
-
-| File | Role |
-|---|---|
-| `radar.mjs` | sweep + verify + score (0–15) |
-| `build-site.mjs` | HTML/RSS/JSON generator + momentum chart |
-| `build-dashboard.mjs` | 3-panel launch dashboard SVG (HN, stars, API traffic) |
-| `render-chart.mjs` | SVG → shareable PNG (CI only) |
-| `mcp-server.mjs` | MCP tools over stdio |
-| `hn-monitor.mjs` | HN thread + PR watch; momentum samples to state |
-| `launch-digest.mjs` | hourly launch-day Discord digest with deltas |
-| `notify.mjs` | Discord/Telegram alerts w/ dedup |
-| `preflight.mjs` | GO/NO-GO launch verification (`npm run preflight`) |
-| `.github/workflows/sweep-and-publish.yml` | the 6h pipeline on cron |
-| `.github/workflows/hn-monitor.yml` | 10-min thread/PR watch |
-| `.github/workflows/launch-digest.yml` | hourly digest |
-| `docs/API_PLAN.md` | product plan for the API stage |
-| `docs/SHOW_HN.md` · `docs/HN_REPLIES.md` · `docs/CROSS_POST.md` | launch kit, replies, cross-posts |
-
-## Show HN launch
-
-Kit: [`docs/SHOW_HN.md`](docs/SHOW_HN.md) (title, first comment, pre-flight) · [`docs/HN_REPLIES.md`](docs/HN_REPLIES.md) (reply templates) · [`docs/CROSS_POST.md`](docs/CROSS_POST.md) (r/opensource + Algora Discord — post after HN). Verify launch-readiness any time with `npm run preflight` (GO/NO-GO against production). After you submit:
-
-1. Copy the item id from your post URL (`news.ycombinator.com/item?id=XXXXXXXX`)
-2. Replace `HN_ITEM_ID` in the link above with that number
-3. Repo → Settings → Secrets and variables → Actions → **Variables** → new variable `HN_ITEM_ID` = the number
-
-Step 3 arms everything at once: the 10-minute thread monitor **and** the "Discuss on Hacker News" link in the live site footer (it appears on the next 6h publish — run the workflow manually to make it instant).
+See [LICENSE](LICENSE). Source data and linked opportunities retain their own terms.
