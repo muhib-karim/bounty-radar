@@ -17,6 +17,7 @@
  *   node radar.mjs --json         # machine-readable JSON to stdout
  *   node radar.mjs --out FILE     # also write the markdown digest to FILE
  *   node radar.mjs --max-age 14   # only bounties seen as new within N days
+ *   node radar.mjs --help         # print usage and exit
  *
  * Exit codes: 0 = ran fine (even if no bounties), 1 = hard failure.
  */
@@ -24,7 +25,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
@@ -67,18 +69,34 @@ const SPAM_PATTERNS = [
 
 const GITHUB_BOUNTY_LABELS = ["💰 bounty", "💎 bounty", "bounty", "💵 bounty"];
 
-const args = process.argv.slice(2);
-const FLAG_JSON = args.includes("--json");
-const FLAG_OUT = (() => {
-  const i = args.indexOf("--out");
-  return i !== -1 ? args[i + 1] : null;
-})();
-const FLAG_MAX_AGE = (() => {
-  const i = args.indexOf("--max-age");
-  if (i === -1) return null;
-  const n = Number(args[i + 1]);
-  return Number.isFinite(n) && n > 0 ? n : null;
-})();
+export const USAGE = `Usage: node radar.mjs [options]
+
+Sweeps Algora, Opire and GitHub bounty labels, verifies each candidate repo
+is alive, and prints a ranked digest. Requires Node 20+ and an authenticated
+GitHub CLI (gh).
+
+Options:
+  --json          machine-readable JSON to stdout (progress on stderr)
+  --out FILE      also write the markdown digest to FILE
+  --max-age N     only keep listings at most N days old
+  -h, --help      show this help and exit`;
+
+/** Parse CLI flags. Pure: takes argv (without node + script), returns options. */
+export function parseArgs(argv) {
+  const valueOf = (name) => {
+    const i = argv.indexOf(name);
+    return i !== -1 ? argv[i + 1] : undefined;
+  };
+  const maxAge = Number(valueOf("--max-age"));
+  return {
+    help: argv.includes("--help") || argv.includes("-h"),
+    json: argv.includes("--json"),
+    out: valueOf("--out") ?? null,
+    maxAge: Number.isFinite(maxAge) && maxAge > 0 ? maxAge : null,
+  };
+}
+
+const { json: FLAG_JSON, out: FLAG_OUT, maxAge: FLAG_MAX_AGE } = parseArgs(process.argv.slice(2));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,9 +126,32 @@ async function gh(args, timeoutMs = GITHUB_TIMEOUT_MS) {
 const daysAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
 const fmtDate = (iso) => (iso ? new Date(iso).toISOString().slice(0, 10) : "?");
 
-function isSpam(owner, repo, title) {
+export function isSpam(owner, repo, title) {
   const hay = `${owner}/${repo} ${title}`;
   return SPAM_PATTERNS.some((re) => re.test(hay));
+}
+
+/** First "$1,234"-style amount in a title, as a number, or null. */
+export function titleAmountUsd(title) {
+  const m = String(title).match(/\$(\d[\d,]*)/);
+  return m ? Number(m[1].replace(/,/g, "")) : null;
+}
+
+/** Mass-produced fake bounties use a copy-pasted "[Bounty: $X]" / "[Bounty]" title prefix. */
+export function isBaitTitle(title) {
+  return /^\s*\[\s*bounty\s*[:\]]/i.test(title);
+}
+
+/** Drop listings older than maxAge days; listings with unknown age are kept. */
+export function filterByMaxAge(candidates, maxAge) {
+  return candidates.filter((c) => maxAge == null || c.ageDays == null || c.ageDays <= maxAge);
+}
+
+/** Rank by score (desc), then amount (desc). Returns new objects with `score` set. */
+export function rankBounties(bounties) {
+  return bounties
+    .map((b) => ({ ...b, score: scoreBounty(b) }))
+    .sort((a, b) => b.score - a.score || (b.amountUsd ?? 0) - (a.amountUsd ?? 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +163,7 @@ function isSpam(owner, repo, title) {
  * contains the listings. We fetch the HTML and parse the (title, $amount, age,
  * claims) tuples out of the text layer. If the page is unavailable we skip.
  */
-function parseAlgoraText(text) {
+export function parseAlgoraText(text) {
   const results = [];
   // Entries look like: "$500\nrepo#373\nfeature: do the thing\n25 months ago\n[2 claims]"
   const entryRe =
@@ -191,7 +232,7 @@ async function sweepAlgora() {
  * So: a line that is exactly "Remote" marks a job; the nearest non-empty line
  * above it is the title; the first long line below is the description.
  */
-function parseAlgoraJobs(text) {
+export function parseAlgoraJobs(text) {
   const lines = text.split("\n").map((l) => l.trim());
   const jobs = [];
   for (let i = 0; i < lines.length; i++) {
@@ -364,8 +405,8 @@ async function sweepOpire() {
     const [owner, repo] = it.repository.nameWithOwner.split("/");
     if (isSpam(owner, repo, it.title)) continue;
     // Reward amount is often in the title: "[BOUNTY] WearOS Support [$1340]"
-    const titleAmount = it.title.match(/\$(\d[\d,]*)/);
-    if (!titleAmount) continue; // no visible amount → just a discussion, skip
+    const amountUsd = titleAmountUsd(it.title);
+    if (amountUsd == null) continue; // no visible amount → just a discussion, skip
     found.push({
       source: "opire",
       org: owner,
@@ -373,7 +414,7 @@ async function sweepOpire() {
       issue: it.number,
       title: it.title,
       url: it.url,
-      amountUsd: Number(titleAmount[1].replace(/,/g, "")),
+      amountUsd,
       ageDays: Math.round(daysAgo(it.updatedAt)),
       claimCount: null,
       escrow: "opire — verify platform is up (has been 502) & app installed on repo",
@@ -407,9 +448,9 @@ async function sweepGithubLabels() {
       // Bait filter: mass-produced fake bounties use a "[Bounty: $X]" title
       // template. Legitimate project-native bounties state amounts in labels,
       // comments or linked platforms, not in a copy-pasted title prefix.
-      if (/^\s*\[\s*bounty\s*[:\]]/i.test(it.title)) continue;
+      if (isBaitTitle(it.title)) continue;
       // Amount sometimes stated in the title, e.g. "fix X ($100)".
-      const titleAmount = it.title.match(/\$(\d[\d,]*)/);
+      const amountUsd = titleAmountUsd(it.title);
       found.push({
         source: "github-label",
         org: owner,
@@ -417,7 +458,7 @@ async function sweepGithubLabels() {
         issue: it.number,
         title: it.title,
         url: it.url,
-        amountUsd: titleAmount ? Number(titleAmount[1].replace(/,/g, "")) : null,
+        amountUsd,
         ageDays: Math.round(daysAgo(it.createdAt)),
         claimCount: null,
         escrow: "unknown — verify escrow before investing time",
@@ -482,7 +523,7 @@ async function verifyCandidates(candidates) {
 // ---------------------------------------------------------------------------
 
 /** Higher = better opportunity. Deterministic, explainable. */
-function scoreBounty(b) {
+export function scoreBounty(b) {
   // Jobs & challenges are higher-income signals — score them on their own scale.
   if (b.source === "algora-jobs") return 7;
   if (b.source === "algora-challenge") {
@@ -495,15 +536,18 @@ function scoreBounty(b) {
   else if (amt >= 100) score += 2;
   else if (amt >= 30) score += 1;
   // freshness: younger is better
-  if (b.ageDays <= 3) score += 3;
-  else if (b.ageDays <= 14) score += 2;
-  else if (b.ageDays <= 60) score += 1;
+  // (null <= 3 is true in JS, so unknown ages must be excluded explicitly)
+  if (b.ageDays != null) {
+    if (b.ageDays <= 3) score += 3;
+    else if (b.ageDays <= 14) score += 2;
+    else if (b.ageDays <= 60) score += 1;
+  }
   // low competition
   if (b.claimCount === 0) score += 2;
   else if (b.claimCount != null && b.claimCount <= 2) score += 1;
   if (b.openCompetingPrs === 0) score += 2;
   // freshly-pushed repo is a plus
-  if (b.repoPushedDaysAgo <= 7) score += 1;
+  if (b.repoPushedDaysAgo != null && b.repoPushedDaysAgo <= 7) score += 1;
   return score;
 }
 
@@ -511,7 +555,7 @@ function scoreBounty(b) {
 // Digest rendering
 // ---------------------------------------------------------------------------
 
-function renderMarkdown(bounties) {
+export function renderMarkdown(bounties) {
   const now = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const lines = [
     `# 🎯 Bounty Radar Digest — ${now}`,
@@ -551,7 +595,7 @@ function renderMarkdown(bounties) {
 // ---------------------------------------------------------------------------
 
 /** Stable id, matching worker/mcp-server convention. */
-const listingKey = (b) => (b.issue != null ? `${b.org}/${b.repo}#${b.issue}` : `${b.source}:${b.org}:${b.title}`);
+export const listingKey = (b) => (b.issue != null ? `${b.org}/${b.repo}#${b.issue}` : `${b.source}:${b.org}:${b.title}`);
 
 /**
  * Merge this sweep's listings into the seen-map (state/listings-seen.json,
@@ -594,15 +638,13 @@ async function main() {
     );
   }
 
-  const maxAge = FLAG_MAX_AGE;
-  const all = [...algoraJobs, ...algoraChallenges, ...algoraMentions, ...algora, ...opire, ...ghLabels].filter(
-    (c) => (maxAge == null || c.ageDays == null || c.ageDays <= maxAge),
+  const all = filterByMaxAge(
+    [...algoraJobs, ...algoraChallenges, ...algoraMentions, ...algora, ...opire, ...ghLabels],
+    FLAG_MAX_AGE,
   );
 
   const verified = await verifyCandidates(all);
-  const ranked = verified
-    .map((b) => ({ ...b, score: scoreBounty(b) }))
-    .sort((a, b) => b.score - a.score || (b.amountUsd ?? 0) - (a.amountUsd ?? 0));
+  const ranked = rankBounties(verified);
 
   annotateFirstSeen(ranked);
 
@@ -620,7 +662,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("radar failed:", err);
-  process.exit(1);
-});
+// Run only when executed directly, so tests can import the pure helpers above.
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  if (parseArgs(process.argv.slice(2)).help) {
+    console.log(USAGE);
+  } else {
+    main().catch((err) => {
+      console.error("radar failed:", err);
+      process.exit(1);
+    });
+  }
+}

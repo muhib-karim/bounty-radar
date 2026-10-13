@@ -25,8 +25,20 @@
 
 import { readFileSync } from "node:fs";
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`Usage: node mcp-server.mjs [feed.json]
+
+MCP server (JSON-RPC 2.0 over stdio) exposing tools: search_bounties,
+get_listing, whats_new, get_stats.
+
+  feed.json            optional local feed file (overrides BOUNTY_RADAR_FEED)
+  BOUNTY_RADAR_FEED    feed URL (default: the published Pages feed)
+  FEED_CACHE_TTL_MS    cache lifetime in ms (default: 600000)`);
+  process.exit(0);
+}
+
 const DEFAULT_FEED_URL = process.env.BOUNTY_RADAR_FEED
-  ?? "https://ai-dev-2024.github.io/bounty-radar/bounties.json";
+  ?? "https://muhib-karim.github.io/bounty-radar/bounties.json";
 
 const FEED_PATH = process.argv[2] ?? null; // local file override
 const CACHE_TTL = Number(process.env.FEED_CACHE_TTL_MS ?? 10 * 60_000);

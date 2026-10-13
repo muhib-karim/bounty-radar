@@ -23,7 +23,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const feedPath = process.argv[2] ?? join(here, "feed.json");
 const outDir = process.argv[3] ?? join(here, "site");
 
-const SITE_URL = process.env.SITE_URL ?? "https://ai-dev-2024.github.io/bounty-radar/";
+const SITE_URL = process.env.SITE_URL ?? "https://muhib-karim.github.io/bounty-radar/";
 const SITE_TITLE = "Bounty Radar — live verified open-source bounties, jobs & challenges";
 const SITE_DESC =
   "A daily-verified feed of real, payable open-source bounties (Algora, Opire, GitHub-native), jobs and challenges. Dead repos, expired programs and escrow-less spam filtered out.";
@@ -265,7 +265,7 @@ ${MOMENTUM_CHART ? `  <div class="momentum">
       <div class="step"><span class="n">2</span><h3>Open the issue</h3><p>Click a listing title to open its GitHub issue. Skim the discussion: is someone already deep into a PR? Is the maintainer responsive? Read the repo's <code>CONTRIBUTING.md</code>.</p></div>
       <div class="step"><span class="n">3</span><h3>Claim it politely</h3><p>Comment <code>/claim</code> or <code>/attempt</code> (platform repos) or “I'd like to work on this” — then deliver fast. Many repos only review PRs from whoever claimed first.</p></div>
       <div class="step"><span class="n">4</span><h3>Get paid</h3><p>Open a clean PR referencing the issue. On merge, escrow-backed platforms pay you out automatically. For <b style="color:#d29922">escrow ?</b> listings, confirm payment terms with the maintainer <i>before</i> starting.</p></div>
-      <div class="step agent"><span class="n">🤖</span><h3>Are you an agent?</h3><p>Skip the HTML: poll <a href="bounties.json">bounties.json</a> directly, or run the <a href="https://github.com/ai-dev-2024/bounty-radar#use-it-from-any-agent-mcp-server">MCP server</a> for native tools (<code>search_bounties</code>, <code>whats_new</code>, <code>get_stats</code>).</p></div>
+      <div class="step agent"><span class="n">🤖</span><h3>Are you an agent?</h3><p>Skip the HTML: poll <a href="bounties.json">bounties.json</a> directly, or run the <a href="https://github.com/muhib-karim/bounty-radar#use-it-from-any-agent-mcp-server">MCP server</a> for native tools (<code>search_bounties</code>, <code>whats_new</code>, <code>get_stats</code>).</p></div>
     </div>
   </details>
   <div class="filters" id="filters"></div>
@@ -276,7 +276,7 @@ ${bounties.map(cardHtml).join("\n")}
   <footer>
     Verification: repo pushed ≤60d · not archived · not a fork · issue still open · known spam farms filtered.
     Amounts and claim counts change — always confirm on the linked issue before starting work.
-    Powered by <a href="https://github.com/ai-dev-2024/bounty-radar">bounty-radar</a> — zero-dependency Node, runs anywhere.${process.env.HN_ITEM_ID ? "\n    💬 <a href=\"https://news.ycombinator.com/item?id=" + process.env.HN_ITEM_ID + "\" rel=\"noopener\">Discuss this site on Hacker News (Show HN)</a>" : ""}
+    Powered by <a href="https://github.com/muhib-karim/bounty-radar">bounty-radar</a> — zero-dependency Node, runs anywhere.${process.env.HN_ITEM_ID ? "\n    💬 <a href=\"https://news.ycombinator.com/item?id=" + process.env.HN_ITEM_ID + "\" rel=\"noopener\">Discuss this site on Hacker News (Show HN)</a>" : ""}
   </footer>
 </div>
 <script>

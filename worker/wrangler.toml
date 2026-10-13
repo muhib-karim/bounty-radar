@@ -11,8 +11,8 @@ binding = "SNAPSHOTS"
 id = "fcbe8f72016c4f548fb9ab219f2fb7e0"
 
 [vars]
-FEED_URL = "https://ai-dev-2024.github.io/bounty-radar/bounties.json"
+FEED_URL = "https://muhib-karim.github.io/bounty-radar/bounties.json"
 CACHE_TTL_MS = "600000"
 FREE_DAILY_LIMIT = "100"
-REPO = "ai-dev-2024/bounty-radar"
-SITE_URL = "https://ai-dev-2024.github.io/bounty-radar/"
+REPO = "muhib-karim/bounty-radar"
+SITE_URL = "https://muhib-karim.github.io/bounty-radar/"

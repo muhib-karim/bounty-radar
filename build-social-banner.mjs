@@ -18,7 +18,7 @@ import sharp from "sharp";
 
 const FEED_URL =
   process.env.SOCIAL_BANNER_FEED_URL ??
-  "https://ai-dev-2024.github.io/bounty-radar/bounties.json";
+  "https://muhib-karim.github.io/bounty-radar/bounties.json";
 
 const W = 1280;
 const H = 640;
@@ -116,7 +116,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
     ${chip(64, "JSON feed")}${chip(190, "RSS")}${chip(268, "MCP for agents")}
 
-    <text x="64" y="624" font-family="${FONT}" font-size="14" fill="${C.muted}">ai-dev-2024.github.io/bounty-radar · sweeps 6 sources every 6h — Algora, Opire, GitHub labels</text>
+    <text x="64" y="624" font-family="${FONT}" font-size="14" fill="${C.muted}">muhib-karim.github.io/bounty-radar · sweeps 6 sources every 6h — Algora, Opire, GitHub labels</text>
   </g>
 </svg>`;
 

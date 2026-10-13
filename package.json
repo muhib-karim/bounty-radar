@@ -9,7 +9,9 @@
     "radar:json": "node radar.mjs --json",
     "radar:digest": "node radar.mjs --out digest.md",
     "preflight": "node preflight.mjs",
-    "build:banner": "node build-social-banner.mjs"
+    "build:banner": "node build-social-banner.mjs",
+    "test": "node --test",
+    "check": "node --check radar.mjs && node --check mcp-server.mjs && node --check build-site.mjs && node --check notify.mjs && node --check preflight.mjs && node --check hn-monitor.mjs && node --check launch-digest.mjs && node --check build-dashboard.mjs && node --check build-social-banner.mjs && node --check render-chart.mjs && node --check worker/src/index.js"
   },
   "engines": {
     "node": ">=20"

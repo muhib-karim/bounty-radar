@@ -3,7 +3,7 @@
  * Show HN thread + GitHub PR monitor — one alert digest for both.
  *
  * HN: polls the item via the Algolia HN API, alerts on every new comment.
- * GitHub: polls all open PRs authored by GH_OWNER/GH_AUTHOR (default ai-dev-2024)
+ * GitHub: polls all open PRs authored by GH_OWNER/GH_AUTHOR (default muhib-karim)
  * via the gh CLI, alerts on new review comments, issue comments (not by us/bots),
  * and review-state changes (approved/changes-requested).
  *
@@ -14,7 +14,7 @@
  *   node hn-monitor.mjs --state path.json
  *
  * Env: HN_ITEM_ID, DISCORD_WEBHOOK_URL, TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (optional)
- *      GH_AUTHOR (default ai-dev-2024) — open PRs of this login are watched
+ *      GH_AUTHOR (default muhib-karim) — open PRs of this login are watched
  *
  * State file remembers seen comment ids → each item alerts exactly once.
  * First run seeds state silently (no backfill spam).
@@ -32,8 +32,8 @@ const hasFlag = (f) => args.includes(`--${f}`);
 const flagVal = (f) => { const i = args.indexOf(`--${f}`); return i !== -1 ? args[i + 1] : undefined; };
 
 const ITEM_ID = process.env.HN_ITEM_ID ?? flagVal("item");
-const GH_AUTHOR = process.env.GH_AUTHOR ?? "ai-dev-2024";
-const DASH_REPO = process.env.GH_DASHBOARD_REPO ?? process.env.GITHUB_REPOSITORY ?? "ai-dev-2024/bounty-radar";
+const GH_AUTHOR = process.env.GH_AUTHOR ?? "muhib-karim";
+const DASH_REPO = process.env.GH_DASHBOARD_REPO ?? process.env.GITHUB_REPOSITORY ?? "muhib-karim/bounty-radar";
 const STATE_PATH = flagVal("state") ?? "state/hn-monitor.json";
 const DRY = hasFlag("dry-run");
 const LOOP = hasFlag("loop");

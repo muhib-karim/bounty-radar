@@ -19,7 +19,7 @@ Show HN: Bounty Radar – a verified, agent-readable feed of OSS bounties
 - **url**:
 
 ```
-https://ai-dev-2024.github.io/bounty-radar/
+https://muhib-karim.github.io/bounty-radar/
 ```
 
 (Submit as URL, not text — the site is the demo. Text posts bury the link.)
@@ -45,7 +45,7 @@ The part I care about most: it's built agent-first. Coding agents are
 becoming the primary bounty hunters, and they need structured feeds, not
 HTML. So besides the board there's:
 
-- JSON feed: https://ai-dev-2024.github.io/bounty-radar/bounties.json (or /v1/diff on the API for change-only polling)
+- JSON feed: https://muhib-karim.github.io/bounty-radar/bounties.json (or /v1/diff on the API for change-only polling)
 - A queryable API (free, no key): https://bounty-radar-api.ai-dev-2024.workers.dev
   e.g. /v1/listings?escrow_only=1&sort=amount  ·  /v1/listings?type=job
   Agents poll /v1/diff?since=<last timestamp> and get structured
@@ -54,9 +54,9 @@ HTML. So besides the board there's:
   post's points/comments/stars over time plus our API traffic, as JSON.
   The board charts the same data live at the top of the page, and a CI job
   renders it into a shareable dashboard image (dashboard.svg). Watch the
-  thread chart itself: https://ai-dev-2024.github.io/bounty-radar/
+  thread chart itself: https://muhib-karim.github.io/bounty-radar/
 - An MCP server so Claude Code / Cursor etc. can ask natively:
-  https://github.com/ai-dev-2024/bounty-radar#use-it-from-any-agent-mcp-server
+  https://github.com/muhib-karim/bounty-radar#use-it-from-any-agent-mcp-server
 
 To prove the loop, we dogfooded it: the agent picked a listing through the
 MCP server, checked competition, fixed the bug, and opened a CI-green PR on
@@ -76,7 +76,7 @@ claim/PR counts drift).
 Ask: if you run an OSS repo with bounty labels, I'd love to hear what
 metadata you'd want in the feed so agents can triage your issues better.
 
-Repo: https://github.com/ai-dev-2024/bounty-radar
+Repo: https://github.com/muhib-karim/bounty-radar
 ```
 
 ## Step 3 — Engagement notes (first 2 hours matter)
@@ -94,7 +94,7 @@ Repo: https://github.com/ai-dev-2024/bounty-radar
 The `hn-monitor` workflow watches your thread every 10 minutes and pings Discord on every new comment (plus GitHub PR reviews in the same digest). It activates the moment you set one variable:
 
 1. **Get the item id** — after submitting, your post's URL is `https://news.ycombinator.com/item?id=XXXXXXXX`. Copy that number.
-2. **Add it** — go to https://github.com/ai-dev-2024/bounty-radar/settings/variables/actions → **New repository variable** → Name: `HN_ITEM_ID`, Value: the number → **Add variable**.
+2. **Add it** — go to https://github.com/muhib-karim/bounty-radar/settings/variables/actions → **New repository variable** → Name: `HN_ITEM_ID`, Value: the number → **Add variable**.
 3. **Done** — the next 10-minute tick starts watching. (Optional smoke test: Repo → Actions → "hn-monitor" → Run workflow → check it went green and Discord got a "nothing new" or seed digest.)
 
 That one variable arms everything at once: the 10-min comment monitor, the hourly launch digest (pts/comments/stars/API-reqs to Discord for ~36h), the board's momentum chart, the footer "Discuss on HN" link, and the `dashboard.svg` shareable image — each appears/starts on the next publish.
@@ -118,6 +118,6 @@ Manual items it can't check:
 - [ ] API 200s: `/v1/stats`, `/v1/listings?escrow_only=1`, `/v1/launch`
 - [ ] PHPWord PR #2937 still open/clean — it's the proof link
 - [ ] Discord webhook secret configured? (alert demo works when traffic finds a fresh listing)
-- [ ] After setting `HN_ITEM_ID`: next sweep adds the momentum chart to the board + `hn-momentum.json` gets its first samples; the sweep after that publishes `dashboard.svg` (that's the "thread charting itself" link in your first comment — verify it before posting, or soften the line to "will chart within the hour"). Login-free share URLs appear on the `gh-artifacts` branch at the same time: `https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/dashboard.png` (and `momentum.png`) — good for tweets/Discord embeds that can't fetch behind a GitHub login.
+- [ ] After setting `HN_ITEM_ID`: next sweep adds the momentum chart to the board + `hn-momentum.json` gets its first samples; the sweep after that publishes `dashboard.svg` (that's the "thread charting itself" link in your first comment — verify it before posting, or soften the line to "will chart within the hour"). Login-free share URLs appear on the `gh-artifacts` branch at the same time: `https://raw.githubusercontent.com/muhib-karim/bounty-radar/gh-artifacts/dashboard.png` (and `momentum.png`) — good for tweets/Discord embeds that can't fetch behind a GitHub login.
 - [ ] **Launch morning, re-check every number in the first comment** (they drift): listing count + freshness split (`/v1/stats`), PHPWord star count, example result counts (`escrow_only=1&sort=amount`, `type=job`), PR #2937 state. Understating is safe; stating a stale exact number is what HN pounces on.
 - [ ] This file (`docs/SHOW_HN.md`) **removed from the repo or kept?** — harmless either way; keeping it is fine and honest
