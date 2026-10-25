@@ -154,6 +154,10 @@ docs/                   banner, screenshots, launch notes
 - Verification uses several GitHub API calls per candidate and is subject to `gh` rate limits.
 - The scheduled workflows have side effects (Pages deploys, state commits, alert webhooks). Review them before running manually in a fork.
 
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Before opening a pull request, run `npm test`. Please keep each pull request focused and say how you tested it.
+
 ## License
 
 [MIT](LICENSE). Source data and linked opportunities retain their own terms.
