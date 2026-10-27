@@ -23,9 +23,9 @@ const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const QUIET = process.argv.includes("--quiet");
 
-const SITE = process.env.SITE_URL ?? "https://ai-dev-2024.github.io/bounty-radar/";
+const SITE = process.env.SITE_URL ?? "https://muhib-karim.github.io/bounty-radar/";
 const API = process.env.LAUNCH_API_URL ?? "https://bounty-radar-api.ai-dev-2024.workers.dev";
-const REPO = process.env.GH_DASHBOARD_REPO ?? "ai-dev-2024/bounty-radar";
+const REPO = process.env.GH_DASHBOARD_REPO ?? "muhib-karim/bounty-radar";
 const PROOF = { repo: "PHPOffice/PHPWord", pr: 2937 };
 const KIT_PATH = join(here, "docs", "SHOW_HN.md");
 const README_PATH = join(here, "README.md");

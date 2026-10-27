@@ -134,7 +134,7 @@ const p1 = panel(0, "HN thread points", last ? `${last.pts} pts · ${last.commen
       + linePlot(samples.map((s) => ({ t: s.t, v: s.pts })), { color: "#3fb950" })
     : emptyNote("chart starts with the first monitor poll after HN_ITEM_ID is set")));
 
-const p2 = panel(1, "GitHub stars (ai-dev-2024/bounty-radar)", lastStars ? `${lastStars.stars} stars` : "—", "#d29922",
+const p2 = panel(1, "GitHub stars (muhib-karim/bounty-radar)", lastStars ? `${lastStars.stars} stars` : "—", "#d29922",
   starSamples.length
     ? linePlot(starSamples.map((s) => ({ t: s.t, v: s.stars })), { color: "#d29922" })
     : emptyNote("logs with the first monitor poll (hn-monitor.json samples)"));

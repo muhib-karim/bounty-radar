@@ -35,7 +35,7 @@ GitHub bounty labels in one pass):
 So I built a verifier that re-checks every candidate every 6 hours: repo
 pushed ≤60 days, not archived, not a fork, issue still open, blocklist
 applied. Today that reduces 105 raw hits to 28 verified listings — and what
-survives is documented at https://ai-dev-2024.github.io/bounty-radar/
+survives is documented at https://muhib-karim.github.io/bounty-radar/
 (the board shows the numbers, RSS + JSON if you want the feed).
 
 The whole thing is ~600 lines of zero-dependency Node: GitHub Actions as the
@@ -52,7 +52,7 @@ Two things I'd genuinely like feedback on from this community:
    the bounty market too small to bother? Honest takes welcome — the data
    says it's small (28 verified listings, 20 under a week old) right now.
 
-Repo (MIT): https://github.com/ai-dev-2024/bounty-radar
+Repo (MIT): https://github.com/muhib-karim/bounty-radar
 ```
 
 **Notes for this venue:**
@@ -85,8 +85,8 @@ listings survived verification (3 escrowed bounties, 4 contract roles, 2
 mentions) — and those are the ones our feed pushes to agents first. Real
 contributors, fewer wasted claims on ghost bounties.
 
-Board: https://ai-dev-2024.github.io/bounty-radar/
-Repo (MIT, zero-dep): https://github.com/ai-dev-2024/bounty-radar
+Board: https://muhib-karim.github.io/bounty-radar/
+Repo (MIT, zero-dep): https://github.com/muhib-karim/bounty-radar
 
 If the Algora team ever ships an official API, I'd happily make the radar a
 client of it — the value here is the verification layer, and honest feedback

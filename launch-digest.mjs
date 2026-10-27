@@ -31,7 +31,7 @@ const hasFlag = (f) => args.includes(`--${f}`);
 const flagVal = (f) => { const i = args.indexOf(`--${f}`); return i !== -1 ? args[i + 1] : undefined; };
 
 const ITEM_ID = process.env.HN_ITEM_ID ?? flagVal("item");
-const DASH_REPO = process.env.GH_DASHBOARD_REPO ?? "ai-dev-2024/bounty-radar";
+const DASH_REPO = process.env.GH_DASHBOARD_REPO ?? "muhib-karim/bounty-radar";
 const API_BASE = process.env.LAUNCH_API_URL ?? "https://bounty-radar-api.ai-dev-2024.workers.dev";
 const MAX_AGE_H = Number(process.env.DIGEST_MAX_AGE_HOURS ?? 36);
 const STATE_PATH = flagVal("state") ?? "state/launch-digest.json";

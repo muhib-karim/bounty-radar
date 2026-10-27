@@ -4,15 +4,15 @@ compatibility_date = "2026-09-01"
 
 [[kv_namespaces]]
 binding = "KEYS"
-id = "5c2e0e88e29e456bbd432de6200ece96"
+id = "22e476a2c66646f39f889876f22909c4"
 
 [[kv_namespaces]]
 binding = "SNAPSHOTS"
-id = "cc6d74895e3848fea796933b6d04c373"
+id = "fcbe8f72016c4f548fb9ab219f2fb7e0"
 
 [vars]
-FEED_URL = "https://ai-dev-2024.github.io/bounty-radar/bounties.json"
+FEED_URL = "https://muhib-karim.github.io/bounty-radar/bounties.json"
 CACHE_TTL_MS = "600000"
 FREE_DAILY_LIMIT = "100"
-REPO = "ai-dev-2024/bounty-radar"
-SITE_URL = "https://ai-dev-2024.github.io/bounty-radar/"
+REPO = "muhib-karim/bounty-radar"
+SITE_URL = "https://muhib-karim.github.io/bounty-radar/"
