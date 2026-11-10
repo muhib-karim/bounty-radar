@@ -47,10 +47,13 @@ jobs:
           HN_ITEM_ID: ${{ vars.HN_ITEM_ID }}
 
       # Shareable charts: SVGs → PNG (2x density) for the HN first comment and
-      # social posts. Best-effort — a sharp install hiccup never blocks publish.
+      # social posts. Best-effort — a sharp install hiccup never blocks publish,
+      # but it is reported: the previous `>/dev/null 2>&1 || true` hid a pin to
+      # a version that never existed. --omit=dev keeps the lint tooling out.
       - name: Render shareable PNGs
         run: |
-          npm install --no-save --no-fund --no-audit sharp@0.105.0 >/dev/null 2>&1 || true
+          npm install --no-save --no-fund --no-audit --omit=dev sharp@0.34.5 \
+            || echo "::warning::sharp install failed — PNG renders will be skipped"
           for f in momentum dashboard; do
             if [ -f "site/$f.svg" ]; then
               node render-chart.mjs "site/$f.svg" "site/$f.png" \
@@ -93,10 +96,10 @@ jobs:
             echo "Rendered by CI on every sweep — always current, no history kept."
             echo "Served login-free at:"
             echo
-            echo "- https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/dashboard.png"
-            echo "- https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/momentum.png"
+            echo "- https://raw.githubusercontent.com/muhib-karim/bounty-radar/gh-artifacts/dashboard.png"
+            echo "- https://raw.githubusercontent.com/muhib-karim/bounty-radar/gh-artifacts/momentum.png"
             echo
-            echo "(Same files are also on Pages: ai-dev-2024.github.io/bounty-radar/<file>)"
+            echo "(Same files are also on Pages: muhib-karim.github.io/bounty-radar/<file>)"
           } > "$CHARTS/README.md"
           git -C "$CHARTS" init -q -b gh-artifacts
           git -C "$CHARTS" add -A
