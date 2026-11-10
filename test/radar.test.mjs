@@ -12,6 +12,11 @@ import {
   filterByMaxAge,
   listingKey,
   renderMarkdown,
+  MAX_SCORE,
+  SOURCES,
+  sweepSources,
+  everySourceFailed,
+  sweepIsUnpublishable,
 } from "../radar.mjs";
 
 describe("parseArgs", () => {
@@ -145,6 +150,107 @@ describe("renderMarkdown", () => {
     assert.match(md, /1 verified-live bounty candidate/);
     assert.match(md, /## \$1,500 — acme\/w#4/);
     assert.match(md, /- \*\*Link:\*\* https:\/\/x\/4/);
-    assert.match(md, /- \*\*Score:\*\* 10\//);
+    assert.match(md, /- \*\*Score:\*\* 10\/12$/m);
+  });
+});
+
+describe("score scale", () => {
+  test("MAX_SCORE is the highest score any listing can reach", () => {
+    let max = -Infinity;
+    for (const source of ["algora", "opire", "github-label", "algora-mention", "algora-jobs", "algora-challenge"]) {
+      for (const amountUsd of [null, 0, 30, 100, 250, 1000, 5000, 1e7]) {
+        for (const ageDays of [null, 0, 3, 4, 14, 60, 61]) {
+          for (const claimCount of [null, 0, 1, 2, 3]) {
+            for (const openCompetingPrs of [null, 0, 1]) {
+              for (const repoPushedDaysAgo of [null, 0, 7, 8]) {
+                max = Math.max(max, scoreBounty({ source, amountUsd, ageDays, claimCount, openCompetingPrs, repoPushedDaysAgo }));
+              }
+            }
+          }
+        }
+      }
+    }
+    assert.equal(max, 12);
+    assert.equal(MAX_SCORE, max);
+  });
+});
+
+describe("sweepSources", () => {
+  const offline = async () => { throw new Error("getaddrinfo ENOTFOUND algora.io"); };
+  const ghBroken = async () => null; // what gh() resolves to when the CLI is missing or unauthenticated
+  const emptyPage = async () => new Response("<html><body>nothing here</body></html>");
+  const ghEmpty = async () => [];
+
+  test("every source is reported, in merge order", async () => {
+    const results = await sweepSources({ fetch: emptyPage, gh: ghEmpty });
+    assert.deepEqual(results.map((r) => r.name), SOURCES.map((s) => s.name));
+    assert.deepEqual(results.map((r) => r.name),
+      ["algora-jobs", "algora-challenges", "algora-mentions", "algora", "opire", "github-labels"]);
+  });
+
+  test("when nothing answers, every source is an error and the sweep counts as failed", async () => {
+    const results = await sweepSources({ fetch: offline, gh: ghBroken });
+    for (const r of results) {
+      assert.equal(r.ok, false, r.name);
+      assert.deepEqual(r.items, [], r.name);
+      assert.ok(r.error, r.name);
+    }
+    assert.match(results.find((r) => r.name === "algora").error, /all 9 Algora org page requests failed .*ENOTFOUND/);
+    assert.match(results.find((r) => r.name === "opire").error, /gh search failed/);
+    assert.equal(everySourceFailed(results), true);
+  });
+
+  test("HTTP error statuses are failures, not empty results", async () => {
+    const results = await sweepSources({ fetch: async () => new Response("down", { status: 503 }), gh: ghBroken });
+    assert.equal(everySourceFailed(results), true);
+    assert.match(results.find((r) => r.name === "algora-challenges").error, /HTTP 503/);
+  });
+
+  test("a source that answers with no listings is a success", async () => {
+    const results = await sweepSources({ fetch: emptyPage, gh: ghEmpty });
+    assert.equal(results.every((r) => r.ok && r.items.length === 0 && r.error === null), true);
+    assert.equal(everySourceFailed(results), false);
+  });
+
+  test("some sources failing is not a failed sweep", async () => {
+    const results = await sweepSources({ fetch: emptyPage, gh: ghBroken });
+    assert.deepEqual(results.filter((r) => !r.ok).map((r) => r.name), ["algora-mentions", "opire", "github-labels"]);
+    assert.equal(everySourceFailed(results), false);
+    // one reachable org page is enough for a multi-request source
+    const oneOrg = await sweepSources({
+      fetch: async (url) => (url.includes("/cal/") ? new Response("ok") : new Response("no", { status: 404 })),
+      gh: ghBroken,
+    });
+    assert.equal(oneOrg.find((r) => r.name === "algora").ok, true);
+    assert.equal(oneOrg.find((r) => r.name === "algora-challenges").ok, false);
+  });
+
+  test("listings from stubbed sources come through normalized", async () => {
+    const page = "<p>$500</p><p>widgets#3</p><p>Fix the thing</p><p>2 days ago</p><p>1 claim</p>";
+    const issue = { repository: { nameWithOwner: "acme/app" }, title: "Paid help wanted", number: 7, url: "https://github.com/acme/app/issues/7", updatedAt: new Date().toISOString() };
+    const results = await sweepSources({
+      fetch: async (url) => new Response(url.endsWith("/cal/bounties?status=open") ? page : ""),
+      gh: async (args) => (args.includes("--mentions=algora-io") ? [issue] : []),
+    });
+    const bySource = Object.fromEntries(results.map((r) => [r.name, r.items]));
+    assert.deepEqual(bySource.algora.map((b) => [b.org, b.repo, b.issue, b.amountUsd, b.claimCount, b.url]),
+      [["cal", "widgets", 3, 500, 1, "https://github.com/cal/widgets/issues/3"]]);
+    assert.deepEqual(bySource["algora-mentions"].map((b) => [b.source, b.org, b.repo, b.issue]), [["algora-mention", "acme", "app", 7]]);
+    assert.equal(everySourceFailed(results), false);
+  });
+
+  test("everySourceFailed needs at least one source", () => {
+    assert.equal(everySourceFailed([]), false);
+  });
+
+  test("a sweep is unpublishable when all sources failed, or some failed and nothing was found", () => {
+    const ok = { name: "a", ok: true, items: [], error: null };
+    const bad = { name: "b", ok: false, items: [], error: "boom" };
+    const listing = { title: "x" };
+    assert.equal(sweepIsUnpublishable([bad, bad], []), true, "every source errored");
+    assert.equal(sweepIsUnpublishable([ok, bad], []), true, "empty next to a failure looks like an outage");
+    assert.equal(sweepIsUnpublishable([ok, bad], [listing]), false, "partial failure with results is published");
+    assert.equal(sweepIsUnpublishable([ok, ok], []), false, "a clean sweep that finds nothing is a real answer");
+    assert.equal(sweepIsUnpublishable([ok, ok], [listing]), false);
   });
 });

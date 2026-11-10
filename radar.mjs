@@ -19,7 +19,11 @@
  *   node radar.mjs --max-age 14   # only bounties seen as new within N days
  *   node radar.mjs --help         # print usage and exit
  *
- * Exit codes: 0 = ran fine (even if no bounties), 1 = hard failure.
+ * Exit codes: 0 = ran fine: no source failed (even if nothing was found), or
+ *                 some failed but listings were still found (failures on stderr).
+ *             1 = hard failure: every source errored, or some errored and no
+ *                 listing survived. Nothing is printed to stdout and no state
+ *                 is written, so an outage is never published as an empty feed.
  */
 
 import { execFile } from "node:child_process";
@@ -35,7 +39,6 @@ const execFileAsync = promisify(execFile);
 // ---------------------------------------------------------------------------
 
 const REPO_ACTIVE_DAYS = 60;      // repo must have been pushed within this window
-const CLAIM_STALENESS_DAYS = 21;  // a claim older than this is considered expired
 const ALGORA_TIMEOUT_MS = 12_000;
 const GITHUB_TIMEOUT_MS = 30_000;
 
@@ -68,6 +71,9 @@ const SPAM_PATTERNS = [
 ];
 
 const GITHUB_BOUNTY_LABELS = ["💰 bounty", "💎 bounty", "bounty", "💵 bounty"];
+
+/** Highest value scoreBounty() can return: 4 amount + 3 freshness + 2 claims + 2 PRs + 1 repo activity. */
+export const MAX_SCORE = 12;
 
 export const USAGE = `Usage: node radar.mjs [options]
 
@@ -113,18 +119,54 @@ async function fetchWithTimeout(url, ms, init = {}) {
   }
 }
 
-/** Run `gh` and return parsed JSON, or null on failure. */
+/**
+ * Environment for `gh`. When colour is forced (CLICOLOR_FORCE, GH_FORCE_TTY),
+ * gh colours and pretty-prints its --json output even into a pipe, and ANSI
+ * escapes are not JSON. Every parse then fails and the sweep comes back empty.
+ */
+const GH_ENV = { ...process.env, NO_COLOR: "1", CLICOLOR_FORCE: "0" };
+delete GH_ENV.GH_FORCE_TTY;
+
+/** Why the most recent `gh` call failed, for the per-source error report. */
+let lastGhError = null;
+
+/** Run `gh` and return parsed JSON, or null on failure (the reason is kept in lastGhError). */
 async function gh(args, timeoutMs = GITHUB_TIMEOUT_MS) {
+  let stdout;
   try {
-    const { stdout } = await execFileAsync("gh", args, { timeout: timeoutMs });
+    ({ stdout } = await execFileAsync("gh", args, { timeout: timeoutMs, env: GH_ENV }));
+  } catch (err) {
+    lastGhError = err.code === "ENOENT"
+      ? "the GitHub CLI (gh) is not installed or not on PATH"
+      : String(err.stderr || err.message).trim().split("\n")[0].slice(0, 200);
+    return null;
+  }
+  try {
     return JSON.parse(stdout);
   } catch {
+    lastGhError = "gh returned output that is not JSON";
     return null;
   }
 }
 
+/** Message for a failed gh search, with the underlying reason when gh() recorded one. */
+const ghFailed = () => `gh search failed: ${lastGhError ?? "no result (is the GitHub CLI installed and authenticated?)"}`;
+
+/** Tally of a source's requests, so "nothing answered" can be told from "nothing listed". */
+function attempts() {
+  let succeeded = 0;
+  let failed = 0;
+  let lastError = null;
+  return {
+    ok() { succeeded++; },
+    fail(reason) { failed++; lastError = reason; },
+    assertSome(what) {
+      if (succeeded === 0) throw new Error(`all ${failed} ${what} requests failed (last: ${lastError})`);
+    },
+  };
+}
+
 const daysAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
-const fmtDate = (iso) => (iso ? new Date(iso).toISOString().slice(0, 10) : "?");
 
 export function isSpam(owner, repo, title) {
   const hay = `${owner}/${repo} ${title}`;
@@ -184,14 +226,16 @@ export function parseAlgoraText(text) {
   return results;
 }
 
-async function sweepAlgora() {
+async function sweepAlgora({ fetch }) {
   const found = [];
+  const outcome = attempts();
   for (const org of ALGORA_ORGS) {
     const url = `https://algora.io/${org}/bounties?status=open`;
     try {
-      const res = await fetchWithTimeout(url, ALGORA_TIMEOUT_MS);
-      if (!res.ok) continue;
+      const res = await fetch(url, ALGORA_TIMEOUT_MS);
+      if (!res.ok) { outcome.fail(`HTTP ${res.status}`); continue; }
       const html = await res.text();
+      outcome.ok();
       // The listings live in the server-rendered text inside the HTML.
       const text = html
         .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -215,10 +259,11 @@ async function sweepAlgora() {
           escrow: "algora-escrow",
         });
       }
-    } catch {
-      // org page down / renamed — skip quietly
+    } catch (err) {
+      outcome.fail(err.message); // org page down / renamed: skip this org
     }
   }
+  outcome.assertSome("Algora org page");
   return found;
 }
 
@@ -256,14 +301,16 @@ export function parseAlgoraJobs(text) {
   return jobs.filter((j) => (seen.has(j.title) ? false : (seen.add(j.title), true)));
 }
 
-async function sweepAlgoraJobs() {
+async function sweepAlgoraJobs({ fetch }) {
   const found = [];
+  const outcome = attempts();
   for (const org of ALGORA_JOBS_ORGS) {
     const url = `https://algora.io/${org}/jobs`;
     try {
-      const res = await fetchWithTimeout(url, ALGORA_TIMEOUT_MS);
-      if (!res.ok) continue;
+      const res = await fetch(url, ALGORA_TIMEOUT_MS);
+      if (!res.ok) { outcome.fail(`HTTP ${res.status}`); continue; }
       const html = await res.text();
+      outcome.ok();
       const text = html
         .replace(/<script[\s\S]*?<\/script>/gi, "")
         .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -285,10 +332,11 @@ async function sweepAlgoraJobs() {
           noIssue: true,
         });
       }
-    } catch {
-      // org has no jobs page or is down — skip
+    } catch (err) {
+      outcome.fail(err.message); // org has no jobs page or is down: skip this org
     }
   }
+  outcome.assertSome("Algora jobs page");
   return found;
 }
 
@@ -296,40 +344,36 @@ async function sweepAlgoraJobs() {
 // Source 1c: Algora challenges (large-prize competitions)
 // ---------------------------------------------------------------------------
 
-async function sweepAlgoraChallenges() {
+async function sweepAlgoraChallenges({ fetch }) {
   const found = [];
-  try {
-    const res = await fetchWithTimeout("https://algora.io/challenges", ALGORA_TIMEOUT_MS);
-    if (!res.ok) return found;
-    const html = await res.text();
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, "\n")
-      .replace(/\n{2,}/g, "\n");
-    // Active challenges render as "$15000\n<Challenge Title>\n..." — completed ones
-    // render without a prize line. Pair any prize amount with the next title-ish line.
-    const entryRe = /\$([\d,]{2,})\s*\n+\s*([^\n]{5,120})/g;
-    let m;
-    while ((m = entryRe.exec(text)) !== null) {
-      const [, amount, title] = m;
-      if (/^(open|completed|bounties)/i.test(title)) continue;
-      found.push({
-        source: "algora-challenge",
-        org: "algora",
-        repo: null,
-        issue: null,
-        title: title.trim(),
-        url: "https://algora.io/challenges",
-        amountUsd: Number(amount.replace(/,/g, "")),
-        ageDays: null,
-        claimCount: null,
-        escrow: "algora challenge prize",
-        noIssue: true,
-      });
-    }
-  } catch {
-    // challenges page down — skip
+  const res = await fetch("https://algora.io/challenges", ALGORA_TIMEOUT_MS);
+  if (!res.ok) throw new Error(`challenges page returned HTTP ${res.status}`);
+  const html = await res.text();
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, "\n")
+    .replace(/\n{2,}/g, "\n");
+  // Active challenges render as "$15000\n<Challenge Title>\n..." — completed ones
+  // render without a prize line. Pair any prize amount with the next title-ish line.
+  const entryRe = /\$([\d,]{2,})\s*\n+\s*([^\n]{5,120})/g;
+  let m;
+  while ((m = entryRe.exec(text)) !== null) {
+    const [, amount, title] = m;
+    if (/^(open|completed|bounties)/i.test(title)) continue;
+    found.push({
+      source: "algora-challenge",
+      org: "algora",
+      repo: null,
+      issue: null,
+      title: title.trim(),
+      url: "https://algora.io/challenges",
+      amountUsd: Number(amount.replace(/,/g, "")),
+      ageDays: null,
+      claimCount: null,
+      escrow: "algora challenge prize",
+      noIssue: true,
+    });
   }
   return found;
 }
@@ -339,7 +383,7 @@ async function sweepAlgoraChallenges() {
 // often signaling a tip/bounty/contract discussion in an active repo.
 // ---------------------------------------------------------------------------
 
-async function sweepAlgoraMentions() {
+async function sweepAlgoraMentions({ gh }) {
   const found = [];
   const issues = await gh(
     [
@@ -352,7 +396,7 @@ async function sweepAlgoraMentions() {
     ],
     GITHUB_TIMEOUT_MS,
   );
-  if (!Array.isArray(issues)) return found;
+  if (!Array.isArray(issues)) throw new Error(ghFailed());
   for (const it of issues) {
     const [owner, repo] = it.repository.nameWithOwner.split("/");
     if (isSpam(owner, repo, it.title)) continue;
@@ -386,7 +430,7 @@ async function sweepAlgoraMentions() {
  * still be discovered on GitHub, but claims/payouts may be blocked while the
  * platform is down — always verify before investing time.
  */
-async function sweepOpire() {
+async function sweepOpire({ gh }) {
   const found = [];
   const issues = await gh(
     [
@@ -399,7 +443,7 @@ async function sweepOpire() {
     ],
     GITHUB_TIMEOUT_MS,
   );
-  if (!Array.isArray(issues)) return found;
+  if (!Array.isArray(issues)) throw new Error(ghFailed());
 
   for (const it of issues) {
     const [owner, repo] = it.repository.nameWithOwner.split("/");
@@ -427,8 +471,9 @@ async function sweepOpire() {
 // Source 3: GitHub bounty labels (platform-agnostic, includes project-native)
 // ---------------------------------------------------------------------------
 
-async function sweepGithubLabels() {
+async function sweepGithubLabels({ gh }) {
   const found = [];
+  const outcome = attempts();
   for (const label of GITHUB_BOUNTY_LABELS) {
     const issues = await gh(
       [
@@ -441,7 +486,8 @@ async function sweepGithubLabels() {
       ],
       GITHUB_TIMEOUT_MS,
     );
-    if (!Array.isArray(issues)) continue;
+    if (!Array.isArray(issues)) { outcome.fail(ghFailed()); continue; }
+    outcome.ok();
     for (const it of issues) {
       const [owner, repo] = it.repository.nameWithOwner.split("/");
       if (isSpam(owner, repo, it.title)) continue;
@@ -465,14 +511,65 @@ async function sweepGithubLabels() {
       });
     }
   }
+  outcome.assertSome("label search");
   return found;
+}
+
+// ---------------------------------------------------------------------------
+// Running the sources
+// ---------------------------------------------------------------------------
+
+/**
+ * Every source, in the order their listings are merged (the first source to
+ * report a listing wins when two report the same one).
+ */
+export const SOURCES = [
+  { name: "algora-jobs", sweep: sweepAlgoraJobs },
+  { name: "algora-challenges", sweep: sweepAlgoraChallenges },
+  { name: "algora-mentions", sweep: sweepAlgoraMentions },
+  { name: "algora", sweep: sweepAlgora },
+  { name: "opire", sweep: sweepOpire },
+  { name: "github-labels", sweep: sweepGithubLabels },
+];
+
+/**
+ * Run every source. Never throws: each source reports
+ * `{ name, ok, items, error }`. A source is an error when none of its
+ * requests got an answer; answering with zero listings is a success.
+ * `deps` lets tests replace the network (`fetch(url, timeoutMs)`) and the
+ * GitHub CLI (`gh(args, timeoutMs)` resolving to parsed JSON or null).
+ */
+export async function sweepSources(deps = {}) {
+  const d = { fetch: fetchWithTimeout, gh, ...deps };
+  return Promise.all(SOURCES.map(async ({ name, sweep }) => {
+    try {
+      return { name, ok: true, items: await sweep(d), error: null };
+    } catch (err) {
+      return { name, ok: false, items: [], error: err?.message ?? String(err) };
+    }
+  }));
+}
+
+/** True when there is nothing trustworthy to publish: every source errored. */
+export function everySourceFailed(results) {
+  return results.length > 0 && results.every((r) => !r.ok);
+}
+
+/**
+ * True when the sweep must not be published: every source errored, or the
+ * final list is empty while at least one source errored. An empty list from a
+ * fully successful sweep is a real answer (a dry market); an empty list next
+ * to failed sources cannot be told apart from an outage.
+ */
+export function sweepIsUnpublishable(results, listings) {
+  return everySourceFailed(results) || (listings.length === 0 && results.some((r) => !r.ok));
 }
 
 // ---------------------------------------------------------------------------
 // Verification: is the repo alive? Are there competing open PRs?
 // ---------------------------------------------------------------------------
 
-async function verifyCandidates(candidates) {
+async function verifyCandidates(candidates, { gh }) {
   const verified = [];
   const seen = new Set();
 
@@ -579,7 +676,7 @@ export function renderMarkdown(bounties) {
       lines.push(`- **Age:** ${b.ageDays}d | **Claims:** ${b.claimCount ?? "?"} | **Open competing PRs:** ${b.openCompetingPrs ?? "?"}`);
     }
     if (b.repoPushedDaysAgo != null) lines.push(`- **Repo activity:** last push ${b.repoPushedDaysAgo}d ago`);
-    lines.push(`- **Score:** ${b.score}/15`, "");
+    lines.push(`- **Score:** ${b.score}/${MAX_SCORE}`, "");
   }
 
   lines.push(
@@ -619,32 +716,35 @@ function annotateFirstSeen(ranked) {
   writeFileSync(SEEN_PATH, JSON.stringify(seen));
 }
 
+/** Sweep, verify, rank, print. Resolves to the process exit code. */
 async function main() {
   if (FLAG_JSON) console.error("Sweeping sources…");
 
-  const [algora, algoraJobs, algoraChallenges, algoraMentions, opire, ghLabels] = await Promise.all([
-    sweepAlgora(),
-    sweepAlgoraJobs(),
-    sweepAlgoraChallenges(),
-    sweepAlgoraMentions(),
-    sweepOpire(),
-    sweepGithubLabels(),
-  ]);
-
-  if (FLAG_JSON) {
+  const results = await sweepSources();
+  const failed = results.filter((r) => !r.ok);
+  for (const r of failed) console.error(`[radar] source ${r.name} failed: ${r.error}`);
+  if (everySourceFailed(results)) {
     console.error(
-      `algora: ${algora.length}, algora-jobs: ${algoraJobs.length}, challenges: ${algoraChallenges.length}, ` +
-      `algora-mentions: ${algoraMentions.length}, opire: ${opire.length}, github-labels: ${ghLabels.length}`,
+      `radar failed: all ${results.length} sources errored, so there is nothing to publish. ` +
+      "Check network access and `gh auth status`.",
     );
+    return 1;
   }
 
-  const all = filterByMaxAge(
-    [...algoraJobs, ...algoraChallenges, ...algoraMentions, ...algora, ...opire, ...ghLabels],
-    FLAG_MAX_AGE,
-  );
+  if (FLAG_JSON) console.error(results.map((r) => `${r.name}: ${r.ok ? r.items.length : "error"}`).join(", "));
 
-  const verified = await verifyCandidates(all);
+  const all = filterByMaxAge(results.flatMap((r) => r.items), FLAG_MAX_AGE);
+
+  const verified = await verifyCandidates(all, { gh });
   const ranked = rankBounties(verified);
+
+  if (sweepIsUnpublishable(results, ranked)) {
+    console.error(
+      `radar failed: no listings survived and ${failed.length} of ${results.length} sources errored, ` +
+      "so an empty feed would more likely be an outage than a dry market. Nothing is published.",
+    );
+    return 1;
+  }
 
   annotateFirstSeen(ranked);
 
@@ -660,6 +760,7 @@ async function main() {
   } else {
     console.log(markdown);
   }
+  return 0;
 }
 
 // Run only when executed directly, so tests can import the pure helpers above.
@@ -668,9 +769,13 @@ if (isMain) {
   if (parseArgs(process.argv.slice(2)).help) {
     console.log(USAGE);
   } else {
-    main().catch((err) => {
-      console.error("radar failed:", err);
-      process.exit(1);
-    });
+    main().then(
+      // exitCode rather than exit(): lets a large JSON feed finish flushing to a pipe
+      (code) => { process.exitCode = code; },
+      (err) => {
+        console.error("radar failed:", err);
+        process.exit(1);
+      },
+    );
   }
 }
