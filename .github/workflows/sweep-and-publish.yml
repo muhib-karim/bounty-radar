@@ -115,7 +115,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -n "$DISCORD_WEBHOOK_URL" ] || [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-            node notify.mjs feed.json --state state/alerts-state.json
+            # notify.mjs exits 1 when a channel fails, after recording the channels
+            # that succeeded. That state must still be committed below (otherwise
+            # the channel that worked is alerted again next sweep) and the site
+            # must still publish, so a failure here is a warning, not a stop.
+            node notify.mjs feed.json --state state/alerts-state.json \
+              || echo "::warning::notify exited $? — at least one alert channel failed; its alerts stay queued for the next sweep."
           else
             echo "No webhook secrets configured — skipping alerts."
           fi
