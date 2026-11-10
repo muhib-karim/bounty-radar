@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "no
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { listingKey, MAX_SCORE } from "./radar.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -46,7 +47,9 @@ if (existsSync(feedPath) && isFresh(feedPath)) {
   data = JSON.parse(readFileSync(feedPath, "utf8"));
 } else {
   console.error("[build-site] feed missing or stale — running a fresh sweep…");
-  const out = execFileSync("node", [join(here, "radar.mjs"), "--json"], {
+  // Same Node binary as this process. A failed sweep (non-zero exit) throws
+  // here, so nothing below runs and an empty site is never written.
+  const out = execFileSync(process.execPath, [join(here, "radar.mjs"), "--json"], {
     encoding: "utf8",
     timeout: 10 * 60_000,
     maxBuffer: 20 * 1024 * 1024,
@@ -58,6 +61,7 @@ if (existsSync(feedPath) && isFresh(feedPath)) {
 
 const bounties = data.bounties ?? [];
 const generatedAt = data.generatedAt ?? new Date().toISOString();
+const generatedMs = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
 
 // HN launch momentum (optional): samples written by hn-monitor.mjs into its
 // committed state file. Missing/empty → the chart is simply omitted.
@@ -73,6 +77,14 @@ try {
 const esc = (s) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// XML 1.0 cannot carry these at all, not even as character references: C0
+// controls other than tab/LF/CR, lone surrogates, U+FFFE and U+FFFF. One of
+// them in an issue title would make the whole feed unparseable.
+const XML_ILLEGAL = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
+/** Escape text for XML element content or an attribute value (either quote style). */
+const xmlEsc = (s) => esc(String(s ?? "").replace(XML_ILLEGAL, "")).replace(/'/g, "&apos;");
+
 const ESCROW_BADGE = {
   "algora-escrow": ["escrow ✓", "good"],
   "opire-stripe": ["escrow ✓", "good"],
@@ -84,7 +96,7 @@ function badgeFor(b) {
   if (b.escrow?.startsWith("direct employment")) return ["direct", "good"];
   if (b.escrow?.includes("502")) return ["⚠ platform down", "warn"];
   if (b.escrow?.startsWith("unknown")) return ["escrow ?", "warn"];
-  return [esc(b.escrow ?? ""), "warn"];
+  return [b.escrow ?? "", "warn"]; // raw text: escaped where it is written out
 }
 
 const SOURCE_LABEL = {
@@ -127,8 +139,8 @@ function cardHtml(b) {
         <div class="row">
           <span class="amount">${esc(fmtMoney(b))}</span>
           <span class="badge ${kind}">${esc(badge)}</span>
-          <span class="source">${esc(SOURCE_LABEL[b.source] ?? esc(b.source))}</span>
-          <span class="score" title="opportunity score">★ ${b.score}/15</span>
+          <span class="source">${esc(SOURCE_LABEL[b.source] ?? b.source)}</span>
+          <span class="score" title="opportunity score">★ ${esc(b.score)}/${MAX_SCORE}</span>
         </div>
         <h2><a href="${esc(b.url)}" rel="noopener" target="_blank">${esc(b.title)}</a></h2>
         ${b.desc ? `<p class="desc">${esc(b.desc)}</p>` : ""}
@@ -173,6 +185,7 @@ function momentumChart(samples, w = 940, h = 120, pad = 8) {
   return bars + line + starsLine + dots;
 }
 
+const HN_ITEM_ID = esc(process.env.HN_ITEM_ID ?? "");
 const MOMENTUM_LAST = momentum[momentum.length - 1] ?? null;
 const MOMENTUM_CHART = momentum.length >= 2 ? momentumChart(momentum) : "";
 
@@ -253,7 +266,7 @@ const html = `<!doctype html>
     <span><a href="bounties.json">{ } JSON for agents</a></span>
   </div>
 ${MOMENTUM_CHART ? `  <div class="momentum">
-    <div class="momentum-head">🚀 Launch momentum — <b>${MOMENTUM_LAST.pts}</b> pts · <b>${MOMENTUM_LAST.comments}</b> comments${momentum.some((s) => s.stars != null) ? ` · <b style="color:#d29922">★ ${MOMENTUM_LAST.stars ?? "…"}</b> repo stars` : ""} · <span style="color:#3fb950">—</span> points <span style="color:#d29922">—</span> stars <span style="color:#58a6ff">▮</span> comments · <a href="https://news.ycombinator.com/item?id=${process.env.HN_ITEM_ID ?? ""}">HN thread</a> · <a href="momentum.svg">shareable chart</a> · <a href="dashboard.svg">full dashboard</a> · <a href="hn-momentum.json">raw data</a></div>
+    <div class="momentum-head">🚀 Launch momentum — <b>${MOMENTUM_LAST.pts}</b> pts · <b>${MOMENTUM_LAST.comments}</b> comments${momentum.some((s) => s.stars != null) ? ` · <b style="color:#d29922">★ ${MOMENTUM_LAST.stars ?? "…"}</b> repo stars` : ""} · <span style="color:#3fb950">—</span> points <span style="color:#d29922">—</span> stars <span style="color:#58a6ff">▮</span> comments · <a href="https://news.ycombinator.com/item?id=${HN_ITEM_ID}">HN thread</a> · <a href="momentum.svg">shareable chart</a> · <a href="dashboard.svg">full dashboard</a> · <a href="hn-momentum.json">raw data</a></div>
     <svg viewBox="0 0 940 120" width="100%" height="120" role="img" aria-label="Hacker News thread points over time" preserveAspectRatio="none">
       ${MOMENTUM_CHART}
     </svg>
@@ -276,7 +289,7 @@ ${bounties.map(cardHtml).join("\n")}
   <footer>
     Verification: repo pushed ≤60d · not archived · not a fork · issue still open · known spam farms filtered.
     Amounts and claim counts change — always confirm on the linked issue before starting work.
-    Powered by <a href="https://github.com/muhib-karim/bounty-radar">bounty-radar</a> — zero-dependency Node, runs anywhere.${process.env.HN_ITEM_ID ? "\n    💬 <a href=\"https://news.ycombinator.com/item?id=" + process.env.HN_ITEM_ID + "\" rel=\"noopener\">Discuss this site on Hacker News (Show HN)</a>" : ""}
+    Powered by <a href="https://github.com/muhib-karim/bounty-radar">bounty-radar</a> — zero-dependency Node, runs anywhere.${HN_ITEM_ID ? "\n    💬 <a href=\"https://news.ycombinator.com/item?id=" + HN_ITEM_ID + "\" rel=\"noopener\">Discuss this site on Hacker News (Show HN)</a>" : ""}
   </footer>
 </div>
 <script>
@@ -313,31 +326,57 @@ ${bounties.map(cardHtml).join("\n")}
 // RSS
 // ---------------------------------------------------------------------------
 
-function rssItem(b, i) {
+/**
+ * A guid that identifies the listing for as long as it exists, so readers
+ * never show it twice. An issue-backed listing is identified by its URL. Jobs
+ * and challenges share one page URL per org, so they add the listing key as a
+ * fragment. Nothing positional goes in: rank changes every sweep.
+ */
+function rssGuid(b) {
+  const key = encodeURIComponent(listingKey(b));
+  if (!b.url) return `bounty-radar:${key}`;
+  return b.issue != null ? String(b.url) : `${b.url}#${key}`;
+}
+
+/** When the feed first saw the listing; stable across builds when the sweep recorded it. */
+function rssDate(b) {
+  const seen = Date.parse(b.first_seen ?? "");
+  const ms = Number.isFinite(seen) ? seen : generatedMs - (b.ageDays ?? 0) * 86400000;
+  return new Date(ms).toUTCString();
+}
+
+function rssItem(b) {
   const [badge] = badgeFor(b);
   const id = b.issue != null ? `${b.org}/${b.repo}#${b.issue}` : `${b.org} — ${b.title}`;
   return `    <item>
-      <title>${esc(`[${fmtMoney(b)}] [${badge}] ${id} — ${b.title}`)}</title>
-      <link>${esc(b.url)}</link>
-      <guid isPermaLink="false">bounty-radar-${b.source}-${b.issue ?? b.title}-${i}</guid>
-      <pubDate>${new Date(Date.now() - (b.ageDays ?? 0) * 86400000).toUTCString()}</pubDate>
-      <description>${esc(
-        `Source: ${SOURCE_LABEL[b.source] ?? b.source}. Score: ${b.score}/15. Escrow: ${b.escrow}.` +
+      <title>${xmlEsc(`[${fmtMoney(b)}] [${badge}] ${id} — ${b.title}`)}</title>
+      <link>${xmlEsc(b.url)}</link>
+      <guid isPermaLink="false">${xmlEsc(rssGuid(b))}</guid>
+      <pubDate>${xmlEsc(rssDate(b))}</pubDate>
+      <description>${xmlEsc(
+        `Source: ${SOURCE_LABEL[b.source] ?? b.source}. Score: ${b.score}/${MAX_SCORE}. Escrow: ${b.escrow}.` +
         (b.desc ? ` ${b.desc}` : ""),
       )}</description>
     </item>`;
 }
 
+// One item per guid: a reader treats a repeated guid as the same entry anyway.
+const rssGuids = new Set();
+const rssItems = bounties.filter((b) => {
+  const guid = rssGuid(b);
+  return rssGuids.has(guid) ? false : (rssGuids.add(guid), true);
+});
+
 const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
 <channel>
-  <title>${esc(SITE_TITLE)}</title>
-  <link>${esc(SITE_URL)}</link>
-  <description>${esc(SITE_DESC)}</description>
+  <title>${xmlEsc(SITE_TITLE)}</title>
+  <link>${xmlEsc(SITE_URL)}</link>
+  <description>${xmlEsc(SITE_DESC)}</description>
   <language>en</language>
-  <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-  <atom:link href="${esc(SITE_URL)}feed.xml" rel="self" type="application/rss+xml"/>
-${bounties.map(rssItem).join("\n")}
+  <lastBuildDate>${xmlEsc(new Date(generatedMs).toUTCString())}</lastBuildDate>
+  <atom:link href="${xmlEsc(SITE_URL)}feed.xml" rel="self" type="application/rss+xml"/>
+${rssItems.map(rssItem).join("\n")}
 </channel>
 </rss>
 `;
@@ -353,7 +392,7 @@ writeFileSync(join(outDir, "bounties.json"), JSON.stringify({ ...data, site: SIT
 writeFileSync(join(outDir, "hn-momentum.json"), JSON.stringify({ updatedAt: new Date().toISOString(), samples: momentum }, null, 2), "utf8");
 if (momentum.length >= 2) {
   const inner = momentumChart(momentum);
-  const hnId = process.env.HN_ITEM_ID ?? "";
+  const hnId = HN_ITEM_ID;
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 150" width="940" height="150" role="img" aria-label="Bounty Radar HN launch momentum">
   <rect width="940" height="150" fill="#0d1117"/>
