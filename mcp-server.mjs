@@ -81,10 +81,21 @@ async function loadFeed() {
 
 const listingKey = (b) => b.id ?? (b.issue != null ? `${b.org}/${b.repo}#${b.issue}` : `${b.source}:${b.org}:${b.title}`);
 
+const LIMIT_DEFAULT = 20;
+const LIMIT_MAX = 100;
+
+/** `limit` argument -> integer in [1, LIMIT_MAX]; missing or non-numeric -> default. */
+function clampLimit(raw) {
+  if (raw === undefined || raw === null || raw === "") return LIMIT_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return LIMIT_DEFAULT;
+  return Math.min(Math.max(Math.trunc(n), 1), LIMIT_MAX);
+}
+
 async function searchBounties(args) {
   const {
     min_score, min_amount, max_age_days, source, type,
-    escrow_only, q, sort = "score", limit = 20,
+    escrow_only, q, sort = "score", limit,
   } = args ?? {};
 
   const feed = await loadFeed();
@@ -123,7 +134,7 @@ async function searchBounties(args) {
   }[sort] ?? (() => 0);
   items.sort(cmp);
 
-  const capped = items.slice(0, Math.min(Number(limit) || 20, 100));
+  const capped = items.slice(0, clampLimit(limit));
   return {
     total_matched: items.length,
     returned: capped.length,
@@ -154,6 +165,7 @@ function summarize(b) {
     age_days: b.ageDays ?? null,
     open_competing_prs: b.openCompetingPrs ?? null,
     claim_count: b.claimCount ?? null,
+    first_seen: b.first_seen ?? undefined,
     desc: b.desc ?? undefined,
   };
 }
@@ -176,16 +188,26 @@ async function getListing(args) {
   };
 }
 
+/**
+ * When the feed first saw a listing, in ms. radar.mjs stamps every listing
+ * with `first_seen`; a listing without a usable one (older feeds) falls back
+ * to the sweep that published it, which errs on the side of reporting it.
+ */
+function firstSeenMs(b, sweepMs) {
+  const t = Date.parse(b.first_seen ?? "");
+  return Number.isFinite(t) ? t : sweepMs;
+}
+
 async function whatsNew(args) {
   const since = args?.since ? new Date(args.since) : null;
   if (since && Number.isNaN(since.getTime())) throw new Error("invalid ISO date for 'since'");
   const feed = await loadFeed();
-  const generatedAt = new Date(feed.generatedAt);
-  // A listing is "new to you" if our feed first saw it after your last poll.
-  // We approximate first_seen with the sweep that published it: anything in the
-  // current feed with generatedAt > since is potentially new. Diffing client-
-  // side with returned ids gives exact new-ness across polls.
-  const items = (feed.bounties ?? []).filter((b) => !since || generatedAt > since);
+  const generatedAt = Date.parse(feed.generatedAt);
+  const sweepMs = Number.isFinite(generatedAt) ? generatedAt : Infinity;
+  // New to you = first seen after your last poll. Compared per listing: the
+  // feed is regenerated every sweep, so its own timestamp says nothing about
+  // how long any one listing has been in it.
+  const items = (feed.bounties ?? []).filter((b) => !since || firstSeenMs(b, sweepMs) > since.getTime());
   return {
     feed_generated_at: feed.generatedAt,
     new_since: since ? since.toISOString() : "epoch (everything)",
@@ -233,12 +255,12 @@ const TOOLS = [
     description:
       "Search the live Bounty Radar feed of verified open-source bounties, jobs and challenges. " +
       "Every listing is verified: repo active (pushed ≤60d), not archived, not a fork, issue open, spam farms filtered. " +
-      "Filters: min_score (0–15 opportunity score), min_amount (USD), max_age_days, source (algora|opire|github-label|algora-jobs|algora-challenge|algora-mention), " +
+      "Filters: min_score (0–12 opportunity score), min_amount (USD), max_age_days, source (algora|opire|github-label|algora-jobs|algora-challenge|algora-mention), " +
       "type (bounty|job|challenge|discussion), escrow_only (true = only escrow-backed), q (text), sort (score|amount|freshness), limit.",
     inputSchema: {
       type: "object",
       properties: {
-        min_score: { type: "number", description: "minimum opportunity score, 0–15" },
+        min_score: { type: "number", description: "minimum opportunity score, 0–12" },
         min_amount: { type: "number", description: "minimum USD amount" },
         max_age_days: { type: "number", description: "only listings at most this many days old" },
         source: { type: "string", description: "comma-separated source filter" },
@@ -246,7 +268,7 @@ const TOOLS = [
         escrow_only: { type: "boolean", description: "only escrow-backed listings" },
         q: { type: "string", description: "text search in title/org/repo/description" },
         sort: { type: "string", enum: ["score", "amount", "freshness"], default: "score" },
-        limit: { type: "number", default: 20, maximum: 100 },
+        limit: { type: "number", default: LIMIT_DEFAULT, minimum: 1, maximum: LIMIT_MAX, description: "out-of-range values are clamped" },
       },
     },
   },
@@ -262,7 +284,7 @@ const TOOLS = [
   {
     name: "whats_new",
     description:
-      "Cheap poll: listings published since your last check. Pass the feed_generated_at you received last time as 'since'. " +
+      "Cheap poll: listings the feed first saw after your last check. Pass the feed_generated_at you received last time as 'since'. " +
       "Returns the same shape as search_bounties — store listing_ids to dedupe.",
     inputSchema: {
       type: "object",
