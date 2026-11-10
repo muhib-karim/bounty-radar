@@ -1,0 +1,23 @@
+# Actions are pinned to commit SHAs, which never move on their own: Dependabot
+# proposes the bump (and updates the version comment) when a release lands.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Root: lint tooling only (the scripts have no runtime dependencies).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+
+  # Worker: wrangler.
+  - package-ecosystem: npm
+    directory: /worker
+    schedule:
+      interval: monthly

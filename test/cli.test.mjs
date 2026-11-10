@@ -46,3 +46,90 @@ test("build-site.mjs renders HTML, RSS and JSON from a local feed", async () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- radar.mjs exit code -----------------------------------------------------
+// Runs the real CLI in a child process with the network stubbed by a preload,
+// inside a temp directory so no repo state is touched. `gh` is whatever the
+// test puts on PATH: by default nothing, so every GitHub-backed source fails.
+async function runRadarOffline(fetchStub, args = [], { ghScript = null, env = {} } = {}) {
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "bounty-radar-cli-"));
+  try {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    if (ghScript) writeFileSync(join(bin, "gh"), ghScript, { mode: 0o755 });
+    const preload = `data:text/javascript,${encodeURIComponent(`globalThis.fetch = ${fetchStub};`)}`;
+    const r = spawnSync(process.execPath, ["--import", preload, script("radar.mjs"), ...args],
+      { cwd: dir, env: { PATH: bin, ...env }, encoding: "utf8", timeout: 30_000 });
+    const statePath = join(dir, "state", "listings-seen.json");
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr, state: existsSync(statePath) ? readFileSync(statePath, "utf8") : null };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const OFFLINE = "async () => { throw new Error('offline') }";
+const EMPTY_PAGES = "async () => new Response('')";
+// every Algora jobs page lists one role; every other page is empty
+const JOBS_ONLY = "async (url) => new Response(String(url).endsWith('/jobs') ? '<p>TypeScript Engineer</p><p>Remote</p>' : '')";
+
+test("radar.mjs exits non-zero, prints no feed and writes no state when every source errors", async () => {
+  for (const args of [[], ["--json"]]) {
+    const r = await runRadarOffline(OFFLINE, args);
+    assert.equal(r.status, 1, `args ${JSON.stringify(args)}: ${r.stderr}`);
+    assert.equal(r.stdout, "", "nothing on stdout: an empty feed must never be published");
+    assert.match(r.stderr, /all 6 sources errored/);
+    assert.match(r.stderr, /source algora failed: .*offline/);
+    assert.match(r.stderr, /source opire failed: gh search failed: the GitHub CLI \(gh\) is not installed/);
+    assert.equal(r.state, null, "first-seen state untouched");
+  }
+});
+
+test("radar.mjs also fails when some sources error and nothing at all is found", async () => {
+  // Algora answers but lists nothing, and gh is unavailable: indistinguishable from an outage.
+  const r = await runRadarOffline(EMPTY_PAGES, ["--json"]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.match(r.stderr, /no listings survived and 3 of 6 sources errored/);
+  assert.equal(r.state, null);
+});
+
+test("radar.mjs exits 0 when some sources error but listings were found", async () => {
+  const r = await runRadarOffline(JOBS_ONLY, ["--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  const feed = JSON.parse(r.stdout);
+  assert.ok(feed.bounties.length >= 1);
+  assert.equal(feed.bounties.every((b) => b.source === "algora-jobs" && b.score === 7 && b.first_seen), true);
+  assert.match(r.stderr, /source github-labels failed/);
+  assert.doesNotMatch(r.stderr, /radar failed/);
+  assert.equal(Object.keys(JSON.parse(r.state)).length, feed.bounties.length);
+});
+
+test("radar.mjs exits 0 with an empty feed when every source answered and found nothing", async () => {
+  const r = await runRadarOffline(EMPTY_PAGES, ["--json"], { ghScript: "#!/bin/sh\necho '[]'\n" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).bounties, []);
+  assert.doesNotMatch(r.stderr, /failed/);
+});
+
+// Found by running a real sweep in a shell that forces colour: gh then colours
+// and pretty-prints its --json output even into a pipe, JSON.parse rejected
+// it, and all three GitHub-backed sources silently came back empty.
+test("radar.mjs gets plain JSON from gh even when the environment forces colour", { skip: process.platform === "win32" }, async () => {
+  const gh = [
+    "#!/bin/sh",
+    "if [ \"$CLICOLOR_FORCE\" = \"1\" ] || [ -n \"$GH_FORCE_TTY\" ] || [ -z \"$NO_COLOR\" ]; then",
+    "  printf '\\033[1;38m[\\033[m\\n\\033[1;38m]\\033[m\\n'",
+    "else",
+    "  echo '[]'",
+    "fi",
+    "",
+  ].join("\n");
+  const r = await runRadarOffline(JOBS_ONLY, ["--json"], { ghScript: gh, env: { CLICOLOR_FORCE: "1", GH_FORCE_TTY: "100%", FORCE_COLOR: "1" } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /failed/, "no GitHub-backed source may fail on coloured output");
+  assert.ok(JSON.parse(r.stdout).bounties.length >= 1);
+});

@@ -26,6 +26,11 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+// gh colours its --json output when colour is forced (CLICOLOR_FORCE,
+// GH_FORCE_TTY), even into a pipe, and that is not parseable. Run it plain.
+const GH_ENV = { ...process.env, NO_COLOR: "1", CLICOLOR_FORCE: "0" };
+delete GH_ENV.GH_FORCE_TTY;
+
 const args = process.argv.slice(2);
 const hasFlag = (f) => args.includes(`--${f}`);
 const flagVal = (f) => { const i = args.indexOf(`--${f}`); return i !== -1 ? args[i + 1] : undefined; };
@@ -55,7 +60,7 @@ function countComments(node) {
 }
 
 async function stars() {
-  const { stdout } = await execFileAsync("gh", ["api", `repos/${DASH_REPO}`, "--jq", ".stargazers_count | tostring"], { timeout: 30_000 });
+  const { stdout } = await execFileAsync("gh", ["api", `repos/${DASH_REPO}`, "--jq", ".stargazers_count | tostring"], { timeout: 30_000, env: GH_ENV });
   return Number(stdout.trim());
 }
 
@@ -94,7 +99,7 @@ if (!ITEM_ID) {
 
 // --- gather (each metric optional; partial failures degrade the line, not the digest)
 const parts = [];
-let threadAgeH = null;
+let threadAgeH;
 
 {
   const item = await hnItem(ITEM_ID);

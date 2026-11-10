@@ -12,7 +12,7 @@ if (!inPath || !outPath) {
   process.exit(2);
 }
 
-// sharp@0.105 renders SVG via librsvg's bundled build — no system deps.
+// sharp (pinned in sweep-and-publish.yml) renders SVG via its bundled librsvg — no system deps.
 const { default: sharp } = await import("sharp");
 const svg = readFileSync(inPath, "utf8");
 

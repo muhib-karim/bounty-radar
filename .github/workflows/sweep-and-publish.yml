@@ -21,13 +21,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so the state-commit rebase never hits shallow-clone edge cases
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          package-manager-cache: false
 
       # gh CLI is preinstalled on ubuntu runners; auth via the built-in token.
       - name: Configure gh auth
@@ -47,10 +48,13 @@ jobs:
           HN_ITEM_ID: ${{ vars.HN_ITEM_ID }}
 
       # Shareable charts: SVGs → PNG (2x density) for the HN first comment and
-      # social posts. Best-effort — a sharp install hiccup never blocks publish.
+      # social posts. Best-effort — a sharp install hiccup never blocks publish,
+      # but it is reported: the previous `>/dev/null 2>&1 || true` hid a pin to
+      # a version that never existed. --omit=dev keeps the lint tooling out.
       - name: Render shareable PNGs
         run: |
-          npm install --no-save --no-fund --no-audit sharp@0.105.0 >/dev/null 2>&1 || true
+          npm install --no-save --no-fund --no-audit --omit=dev sharp@0.34.5 \
+            || echo "::warning::sharp install failed — PNG renders will be skipped"
           for f in momentum dashboard; do
             if [ -f "site/$f.svg" ]; then
               node render-chart.mjs "site/$f.svg" "site/$f.png" \
@@ -62,14 +66,14 @@ jobs:
 
       - name: Upload momentum.png artifact
         if: hashFiles('site/momentum.png') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: momentum
           path: site/momentum.png
 
       - name: Upload dashboard.png artifact
         if: hashFiles('site/dashboard.png') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dashboard
           path: site/dashboard.png
@@ -93,10 +97,10 @@ jobs:
             echo "Rendered by CI on every sweep — always current, no history kept."
             echo "Served login-free at:"
             echo
-            echo "- https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/dashboard.png"
-            echo "- https://raw.githubusercontent.com/ai-dev-2024/bounty-radar/gh-artifacts/momentum.png"
+            echo "- https://raw.githubusercontent.com/muhib-karim/bounty-radar/gh-artifacts/dashboard.png"
+            echo "- https://raw.githubusercontent.com/muhib-karim/bounty-radar/gh-artifacts/momentum.png"
             echo
-            echo "(Same files are also on Pages: ai-dev-2024.github.io/bounty-radar/<file>)"
+            echo "(Same files are also on Pages: muhib-karim.github.io/bounty-radar/<file>)"
           } > "$CHARTS/README.md"
           git -C "$CHARTS" init -q -b gh-artifacts
           git -C "$CHARTS" add -A
@@ -115,7 +119,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -n "$DISCORD_WEBHOOK_URL" ] || [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-            node notify.mjs feed.json --state state/alerts-state.json
+            # notify.mjs exits 1 when a channel fails, after recording the channels
+            # that succeeded. That state must still be committed below (otherwise
+            # the channel that worked is alerted again next sweep) and the site
+            # must still publish, so a failure here is a warning, not a stop.
+            node notify.mjs feed.json --state state/alerts-state.json \
+              || echo "::warning::notify exited $? — at least one alert channel failed; its alerts stay queued for the next sweep."
           else
             echo "No webhook secrets configured — skipping alerts."
           fi
@@ -147,7 +156,7 @@ jobs:
           fi
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
 
@@ -167,4 +176,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

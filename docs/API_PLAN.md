@@ -38,7 +38,7 @@ Stable, flat, verification-first. This extends the existing `bounties.json` sche
   "url": "https://github.com/.../issues/1130",
   "org": "tscircuit", "repo": "tscircuit", "issue": 1130,
   "amount_usd": 25,
-  "score": 7,                                      // 0–15 opportunity score (unchanged)
+  "score": 7,                                      // 0–12 opportunity score (unchanged)
   "escrow": "algora-escrow",                       // escrow | platform-down | unknown
   "age_days": 41,
   "first_seen": "2026-09-09T00:07:53Z",            // when OUR radar first saw it

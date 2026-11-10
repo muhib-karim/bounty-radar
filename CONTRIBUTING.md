@@ -4,9 +4,10 @@ Thanks! This repo runs a public data pipeline; contributions should keep it bori
 
 ## Ground rules
 
-- **Zero runtime npm dependencies.** Node stdlib only (`worker/` may use what its deploy needs).
+- **Zero runtime npm dependencies.** Node stdlib only (`worker/` may use what its deploy needs). The root `devDependencies` are lint tooling and nothing else.
 - **Node 20+.** No build step, no TypeScript, no transpile.
 - Smallest working diff. No scaffolding "for later".
+- **A bug fix comes with a test** under `test/` (`node:test`, offline: mock `fetch`, KV and the `gh` CLI rather than calling them).
 
 ## Good first contributions
 
@@ -17,10 +18,15 @@ Thanks! This repo runs a public data pipeline; contributions should keep it bori
 ## Before opening a PR
 
 ```bash
-node --check <changed files>
-node radar.mjs --json | tail -5     # pipeline still runs
-npm run preflight                   # GO verdict expected
+npm ci                              # once: installs ESLint (lint tooling only)
+npm run lint
+npm run check                       # node --check on every script
+npm test                            # offline, no install needed
+node radar.mjs --json | tail -5     # pipeline still runs (needs network + gh)
+npm run preflight                   # GO verdict expected (checks production)
 ```
+
+CI runs lint, the tests on Node 20 and 22, and a gitleaks secret scan on every pull request.
 
 One PR per idea. Describe the *why* in one paragraph; the diff shows the how.
 

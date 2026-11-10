@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-11-10T00:55:07.560Z",
+  "bounties": [
+    { "source": "algora", "org": "acme", "repo": "widgets", "issue": 12, "title": "Add CSV export", "url": "https://github.com/acme/widgets/issues/12", "amountUsd": 500, "ageDays": 70, "claimCount": 0, "escrow": "algora-escrow", "score": 9, "first_seen": "2026-09-01T00:00:00.000Z", "last_seen": "2026-11-10T00:55:07.560Z" },
+    { "source": "github-label", "org": "foo", "repo": "bar", "issue": 3, "title": "Fix flaky parser ($50)", "url": "https://github.com/foo/bar/issues/3", "amountUsd": 50, "ageDays": 1, "claimCount": null, "escrow": "unknown — verify escrow before investing time", "score": 5, "first_seen": "2026-11-09T12:00:00.000Z", "last_seen": "2026-11-10T00:55:07.560Z" },
+    { "source": "algora-jobs", "org": "acme", "repo": null, "issue": null, "title": "TypeScript Engineer", "url": "https://algora.io/acme/jobs", "amountUsd": null, "ageDays": null, "escrow": "direct employment/contract — negotiate directly", "noIssue": true, "score": 7 },
+    { "source": "algora-challenge", "org": "algora", "repo": null, "issue": null, "title": "Build a fast indexer", "url": "https://algora.io/challenges", "amountUsd": 15000, "ageDays": null, "escrow": "algora challenge prize", "noIssue": true, "score": 9, "first_seen": "not-a-date" }
+  ]
+}

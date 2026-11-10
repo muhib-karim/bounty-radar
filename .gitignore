@@ -12,3 +12,8 @@ worker/dev-test.log
 worker/node_modules/
 node_modules/
 .wrangler/
+
+# local secrets for `wrangler dev` and shell env files
+.dev.vars
+.env
+.env.*

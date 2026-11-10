@@ -48,7 +48,6 @@ let usd = 0;
 for (const x of L) if (x.amountUsd) usd += x.amountUsd;
 const winnable = L.filter((x) => (x.score ?? 0) >= 6).length;
 const usdFmt = "$" + usd.toLocaleString("en-US");
-const generatedAt = data.generatedAt ?? new Date().toISOString();
 
 // ---- helpers ----
 const statBlock = (x, value, label, color) => `
