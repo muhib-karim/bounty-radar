@@ -11,6 +11,7 @@
 ## Checklist
 
 - [ ] Zero runtime npm dependencies added (stdlib only)
-- [ ] `node --check` passes on changed files
+- [ ] `npm run lint`, `npm run check` and `npm test` pass
+- [ ] Bug fixes include a regression test under `test/`
 - [ ] `node radar.mjs --json` still runs (if pipeline code changed)
 - [ ] `npm run preflight` reports GO (if it touches surfaces the kit references)
