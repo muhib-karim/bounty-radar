@@ -27,6 +27,12 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+// gh colours its --json output when colour is forced (CLICOLOR_FORCE,
+// GH_FORCE_TTY), even into a pipe, and that is not parseable. Run it plain.
+const GH_ENV = { ...process.env, NO_COLOR: "1", CLICOLOR_FORCE: "0" };
+delete GH_ENV.GH_FORCE_TTY;
+const GH_OPTS = { timeout: 30_000, env: GH_ENV };
+
 const args = process.argv.slice(2);
 const hasFlag = (f) => args.includes(`--${f}`);
 const flagVal = (f) => { const i = args.indexOf(`--${f}`); return i !== -1 ? args[i + 1] : undefined; };
@@ -95,7 +101,7 @@ async function pollGithub(seen) {
   const { stdout } = await execFileAsync("gh", [
     "search", "prs", `--author=${GH_AUTHOR}`, "--state=open", "--limit=30",
     "--json", "repository,number,title,url,updatedAt",
-  ], { timeout: 30000 });
+  ], GH_OPTS);
   const prs = JSON.parse(stdout);
   const alerts = [];
   const seenPrs = seen.github ?? {};
@@ -109,13 +115,13 @@ async function pollGithub(seen) {
     // issue + review comments in one pass each
     const [issueC, reviewC] = await Promise.all([
       execFileAsync("gh", ["api", `repos/${repo}/issues/${pr.number}/comments`, "--jq",
-        `[.[] | {id: .id, by: .user.login, body: .body}] | tostring`], { timeout: 30000 }).then(r => JSON.parse(r.stdout)).catch(() => []),
+        `[.[] | {id: .id, by: .user.login, body: .body}] | tostring`], GH_OPTS).then(r => JSON.parse(r.stdout)).catch(() => []),
       execFileAsync("gh", ["api", `repos/${repo}/pulls/${pr.number}/comments`, "--jq",
-        `[.[] | {id: .id, by: .user.login, body: .body}] | tostring`], { timeout: 30000 }).then(r => JSON.parse(r.stdout)).catch(() => []),
+        `[.[] | {id: .id, by: .user.login, body: .body}] | tostring`], GH_OPTS).then(r => JSON.parse(r.stdout)).catch(() => []),
     ]);
     const reviewSummaries = await execFileAsync("gh", ["api", `repos/${repo}/pulls/${pr.number}/reviews`, "--jq",
       `[.[] | select(.body != "" or .state == "APPROVED" or .state == "CHANGES_REQUESTED") | {id: .id, by: .user.login, state: .state, body: .body}] | tostring`],
-      { timeout: 30000 }).then(r => JSON.parse(r.stdout)).catch(() => []);
+      GH_OPTS).then(r => JSON.parse(r.stdout)).catch(() => []);
 
     const all = [...issueC, ...reviewC].filter(c => !BOT_LOGINS.test(c.by) && c.by !== GH_AUTHOR);
     for (const c of all) {
@@ -201,7 +207,7 @@ async function poll() {
     // Launch-dashboard: sample the dashboard repo's star count into the latest
     // momentum sample (series starts logging once HN_ITEM_ID is set).
     try {
-      const { stdout } = await execFileAsync("gh", ["api", `repos/${DASH_REPO}`, "--jq", ".stargazers_count | tostring"], { timeout: 30000 });
+      const { stdout } = await execFileAsync("gh", ["api", `repos/${DASH_REPO}`, "--jq", ".stargazers_count | tostring"], GH_OPTS);
       const stars = Number(stdout.trim());
       const lastSample = seen.momentum?.[seen.momentum.length - 1];
       if (lastSample) lastSample.stars = stars;
@@ -234,7 +240,7 @@ async function poll() {
       try {
         await execFileAsync("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/dispatches`,
           "-f", "event_type=hn-followup",
-          "-F", `client_payload[reason]=review-change(${reviewEvents})`], { timeout: 30000 });
+          "-F", `client_payload[reason]=review-change(${reviewEvents})`], GH_OPTS);
         console.log("[monitor] review-state change → dispatched immediate follow-up poll");
       } catch (e) { console.error("[monitor] self-dispatch failed:", e.message); }
     } else if (LOOP) {
