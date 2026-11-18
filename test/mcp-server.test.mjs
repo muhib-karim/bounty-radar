@@ -140,6 +140,19 @@ test("search_bounties clamps limit instead of slicing from the end", async () =>
   assert.deepEqual(payload(r[6]).listing_ids, ["algora-challenge:algora:Build a fast indexer"]);
 });
 
+test("search_bounties matches Worker parity on whitespace limit, numeric strings and unknown sort", async () => {
+  const r = await rpc([
+    call(1, "search_bounties", { limit: "   " }),
+    call(2, "search_bounties", { min_amount: "400", sort: "bogus" }),
+  ]);
+  assert.equal(payload(r[1]).returned, 4, "whitespace limit falls back to default instead of clamping 0 -> 1");
+  assert.deepEqual(
+    payload(r[2]).listing_ids,
+    ["acme/widgets#12", "algora-challenge:algora:Build a fast indexer"],
+    "string min_amount filters and unknown sort falls back to score descending"
+  );
+});
+
 test("tool descriptions state the real score range", async () => {
   const r = await rpc([{ id: 1, method: "tools/list" }]);
   const search = r[1].result.tools[0];

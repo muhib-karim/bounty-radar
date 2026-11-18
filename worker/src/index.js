@@ -65,8 +65,7 @@ class HttpError extends Error {
   }
 }
 
-// ponytail: duplicate of mcp-server.mjs filter logic (~40 lines, stable); extract
-// to a shared module only if both start drifting.
+// shortcut: ~40-line filter logic mirrored in mcp-server.mjs (Worker has no imports), extract if they start drifting.
 const inferType = (b) =>
   ({ "algora-jobs": "job", "algora-challenge": "challenge", "algora-mention": "discussion" }[b.source] ?? "bounty");
 
