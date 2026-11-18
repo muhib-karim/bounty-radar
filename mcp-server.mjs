@@ -59,6 +59,7 @@ async function loadFeed() {
       }
       const res = await fetch(DEFAULT_FEED_URL, {
         headers: { "User-Agent": "bounty-radar-mcp/1.0" },
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`feed fetch failed: ${res.status}`);
       return await res.json();
@@ -86,11 +87,13 @@ const LIMIT_MAX = 100;
 
 /** `limit` argument -> integer in [1, LIMIT_MAX]; missing or non-numeric -> default. */
 function clampLimit(raw) {
-  if (raw === undefined || raw === null || raw === "") return LIMIT_DEFAULT;
+  if (raw === undefined || raw === null || String(raw).trim() === "") return LIMIT_DEFAULT;
   const n = Number(raw);
   if (!Number.isFinite(n)) return LIMIT_DEFAULT;
   return Math.min(Math.max(Math.trunc(n), 1), LIMIT_MAX);
 }
+
+const numArg = (v) => (v !== undefined && v !== null && String(v).trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 
 async function searchBounties(args) {
   const {
@@ -101,9 +104,12 @@ async function searchBounties(args) {
   const feed = await loadFeed();
   let items = [...(feed.bounties ?? [])];
 
-  if (Number.isFinite(min_score)) items = items.filter((b) => (b.score ?? 0) >= min_score);
-  if (Number.isFinite(min_amount)) items = items.filter((b) => (b.amountUsd ?? 0) >= min_amount);
-  if (Number.isFinite(max_age_days)) items = items.filter((b) => b.ageDays == null || b.ageDays <= max_age_days);
+  const minScore = numArg(min_score);
+  const minAmount = numArg(min_amount);
+  const maxAge = numArg(max_age_days);
+  if (minScore !== null) items = items.filter((b) => (b.score ?? 0) >= minScore);
+  if (minAmount !== null) items = items.filter((b) => (b.amountUsd ?? 0) >= minAmount);
+  if (maxAge !== null) items = items.filter((b) => b.ageDays == null || b.ageDays <= maxAge);
   if (source) {
     const wanted = String(source).split(",").map((s) => s.trim()).filter(Boolean);
     items = items.filter((b) => wanted.includes(b.source));
@@ -128,10 +134,9 @@ async function searchBounties(args) {
   }
 
   const cmp = {
-    score: (a, b) => (b.score ?? 0) - (a.score ?? 0),
     amount: (a, b) => (b.amountUsd ?? -1) - (a.amountUsd ?? -1),
     freshness: (a, b) => (a.ageDays ?? 1e9) - (b.ageDays ?? 1e9),
-  }[sort] ?? (() => 0);
+  }[sort] ?? ((a, b) => (b.score ?? 0) - (a.score ?? 0));
   items.sort(cmp);
 
   const capped = items.slice(0, clampLimit(limit));
