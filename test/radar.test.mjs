@@ -7,6 +7,7 @@ import {
   titleAmountUsd,
   parseAlgoraText,
   parseAlgoraJobs,
+  htmlToPlainText,
   scoreBounty,
   rankBounties,
   filterByMaxAge,
@@ -87,6 +88,15 @@ describe("parseAlgoraJobs", () => {
   });
   test("skips implausible titles such as prices", () => {
     assert.deepEqual(parseAlgoraJobs("$5000\nRemote"), []);
+  });
+});
+
+describe("htmlToPlainText", () => {
+  test("strips script/style blocks with malformed closing tags and decodes entities once", () => {
+    const html = "<SCRIPT>alert(1)</script foo=\"bar\"><style>body{}</style ><p>Pay &amp;quot;$500&quot; &lbrace;ok&rbrace;</p>";
+    const plain = htmlToPlainText(html, { collapseBlankLines: true, decodeEntities: true });
+    assert.doesNotMatch(plain, /alert|body/);
+    assert.equal(plain.trim(), 'Pay &quot;$500" {ok}');
   });
 });
 
