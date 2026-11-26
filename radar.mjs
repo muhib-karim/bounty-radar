@@ -226,6 +226,62 @@ export function parseAlgoraText(text) {
   return results;
 }
 
+const HTML_ENTITIES = {
+  "&lbrace;": "{",
+  "&rbrace;": "}",
+  "&amp;": "&",
+  "&#39;": "'",
+  "&apos;": "'",
+  "&quot;": '"',
+};
+
+/**
+ * Strip <script>/<style> blocks and HTML tags in one linear pass (no regex
+ * tag-sanitization backtracking), then decode common HTML entities once.
+ */
+export function htmlToPlainText(html, { collapseBlankLines = false, decodeEntities = false } = {}) {
+  const src = String(html);
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === "<") {
+      const lowerHead = src.slice(i + 1, i + 8).toLowerCase();
+      const closeTag = src.indexOf(">", i + 1);
+      if (closeTag === -1) {
+        out.push(src.slice(i));
+        break;
+      }
+      if (lowerHead.startsWith("script") && (src[i + 7] === ">" || /\s/.test(src[i + 7] || ""))) {
+        const end = src.toLowerCase().indexOf("</script", closeTag + 1);
+        const endGt = end === -1 ? -1 : src.indexOf(">", end + 8);
+        i = endGt === -1 ? src.length : endGt + 1;
+        out.push("\n");
+        continue;
+      }
+      if (lowerHead.startsWith("style") && (src[i + 6] === ">" || /\s/.test(src[i + 6] || ""))) {
+        const end = src.toLowerCase().indexOf("</style", closeTag + 1);
+        const endGt = end === -1 ? -1 : src.indexOf(">", end + 7);
+        i = endGt === -1 ? src.length : endGt + 1;
+        out.push("\n");
+        continue;
+      }
+      i = closeTag + 1;
+      out.push("\n");
+      continue;
+    }
+    out.push(src[i]);
+    i++;
+  }
+  let text = out.join("");
+  if (decodeEntities) {
+    text = text.replace(/&(?:lbrace|rbrace|amp|#39|apos|quot);/g, (m) => HTML_ENTITIES[m] ?? m);
+  }
+  if (collapseBlankLines) {
+    text = text.replace(/\n{2,}/g, "\n");
+  }
+  return text;
+}
+
 async function sweepAlgora({ fetch }) {
   const found = [];
   const outcome = attempts();
@@ -237,14 +293,7 @@ async function sweepAlgora({ fetch }) {
       const html = await res.text();
       outcome.ok();
       // The listings live in the server-rendered text inside the HTML.
-      const text = html
-        .replace(/<script[\s\S]*?<\/script>/gi, "")
-        .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<[^>]+>/g, "\n")
-        .replace(/&lbrace;/g, "{")
-        .replace(/&rbrace;/g, "}")
-        .replace(/&amp;/g, "&")
-        .replace(/\n{2,}/g, "\n"); // collapse blank lines so entries are contiguous
+      const text = htmlToPlainText(html, { collapseBlankLines: true, decodeEntities: true });
       for (const entry of parseAlgoraText(text)) {
         found.push({
           source: "algora",
@@ -311,11 +360,7 @@ async function sweepAlgoraJobs({ fetch }) {
       if (!res.ok) { outcome.fail(`HTTP ${res.status}`); continue; }
       const html = await res.text();
       outcome.ok();
-      const text = html
-        .replace(/<script[\s\S]*?<\/script>/gi, "")
-        .replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<[^>]+>/g, "\n")
-        .replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&apos;/g, "'").replace(/&quot;/g, '"');
+      const text = htmlToPlainText(html, { decodeEntities: true });
       for (const job of parseAlgoraJobs(text)) {
         found.push({
           source: "algora-jobs",
@@ -349,11 +394,7 @@ async function sweepAlgoraChallenges({ fetch }) {
   const res = await fetch("https://algora.io/challenges", ALGORA_TIMEOUT_MS);
   if (!res.ok) throw new Error(`challenges page returned HTTP ${res.status}`);
   const html = await res.text();
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, "\n")
-    .replace(/\n{2,}/g, "\n");
+  const text = htmlToPlainText(html, { collapseBlankLines: true });
   // Active challenges render as "$15000\n<Challenge Title>\n..." — completed ones
   // render without a prize line. Pair any prize amount with the next title-ish line.
   const entryRe = /\$([\d,]{2,})\s*\n+\s*([^\n]{5,120})/g;

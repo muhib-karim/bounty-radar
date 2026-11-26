@@ -24,7 +24,7 @@ const feedOf = (bounties) => ({ generatedAt: "2026-11-10T00:00:00.000Z", bountie
 function fakeFetch(failing = []) {
   const calls = [];
   const fetchImpl = async (url, init) => {
-    const channel = String(url).includes("api.telegram.org") ? "telegram" : "discord";
+    const channel = new URL(String(url)).hostname === "api.telegram.org" ? "telegram" : "discord";
     calls.push({ channel, url: String(url), body: JSON.parse(init.body) });
     return failing.includes(channel)
       ? new Response("Bad Request: can't parse entities", { status: 400 })
@@ -168,13 +168,14 @@ test("messages show the score out of 12 and escape listing text for Telegram's H
 
 const SCRIPT = fileURLToPath(new URL("../notify.mjs", import.meta.url));
 
+const CLI_FETCH_STUB = 'globalThis.fetch = async (url) => new Response("x", { status: new URL(url).hostname === process.env.TEST_FAIL_HOST ? 500 : 200 });';
+
 /** Run notify.mjs with fetch replaced by a preload that fails the given channel. */
 function cli(dir, { fail }) {
-  const stub = `globalThis.fetch = async (url) => new Response("x", { status: String(url).includes(${JSON.stringify(fail)}) ? 500 : 200 });`;
   return spawnSync(process.execPath, [
-    "--import", `data:text/javascript,${encodeURIComponent(stub)}`,
+    "--import", `data:text/javascript,${encodeURIComponent(CLI_FETCH_STUB)}`,
     SCRIPT, join(dir, "feed.json"), "--state", join(dir, "state", "alerts-state.json"),
-  ], { encoding: "utf8", timeout: 30_000, env: { ...process.env, ...ENV } });
+  ], { encoding: "utf8", timeout: 30_000, env: { ...process.env, ...ENV, TEST_FAIL_HOST: fail } });
 }
 
 test("CLI: a failed channel exits 1 but the successful channel's state is on disk", () => {
